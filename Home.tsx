@@ -1,3 +1,10 @@
+
+@app.get("/")
+def home():
+    return {"message": "Welcome to ABC Shopping Plaza 🛒"}
+
+
+
 // src/pages/Home.tsx — FINAL, CLEAN
 import { useEffect, useState } from "react";
 import api from "@/api/client";  // your sacred Axios
