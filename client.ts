@@ -1,5 +1,5 @@
 
-// src/api/client.ts — FINAL, FIXED & CLEAN
+// src/api/client.ts — FINAL, DOUBLE SUBMIT COOKIE VERSION
 import axios from "axios";
 
 const API_URL = import.meta.env.VITE_API_URL;
@@ -18,14 +18,19 @@ if (import.meta.env.DEV && !API_URL) {
 // =============== TOKEN REFRESH QUEUE ===============
 let isRefreshing = false;
 let failedQueue: Array<{
-  resolve: (value?: any) => void;     // ← Made optional
+  resolve: (value?: any) => void;
   reject: (reason?: any) => void;
 }> = [];
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("csrf_token");
-  if (token) {
-    config.headers["X-CSRF-Token"] = token;
+  // Read CSRF token from cookie (Double Submit Cookie Pattern)
+  const csrfToken = document.cookie
+    .split("; ")
+    .find((row) => row.startsWith("csrf_token="))
+    ?.split("=")[1];
+
+  if (csrfToken) {
+    config.headers["X-CSRF-Token"] = csrfToken;
   }
   return config;
 });
@@ -56,13 +61,12 @@ api.interceptors.response.use(
           credentials: "include",
         });
 
-        failedQueue.forEach((p) => p.resolve());     // ← Now works
+        failedQueue.forEach((p) => p.resolve());
         failedQueue = [];
         return api(originalRequest);
       } catch (refreshError) {
         failedQueue.forEach((p) => p.reject(refreshError));
         failedQueue = [];
-        localStorage.removeItem("csrf_token");
         window.location.href = "/login";
         return Promise.reject(refreshError);
       } finally {
