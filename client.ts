@@ -1,23 +1,26 @@
-// src/api/client.ts — FINAL, CBN-APPROVED, SENIOR DEV VERSION
+
+// src/api/client.ts — FINAL, FIXED & CLEAN
 import axios from "axios";
 
 const API_URL = import.meta.env.VITE_API_URL;
 
 const api = axios.create({
-  baseURL: API_URL || "http://127.0.0.1:8000",  // ← THIS SAVES YOUR LIFE
+  baseURL: API_URL || "http://127.0.0.1:8000",
   withCredentials: true,
 });
 
-// Optional: Warn if someone forgot .env (senior dev move)
 if (import.meta.env.DEV && !API_URL) {
   console.warn(
     "VITE_API_URL not configured! Using fallback: http://127.0.0.1:8000"
   );
 }
 
-// =============== YOUR ORIGINAL INTERCEPTORS — PERFECT, KEEP FOREVER ===============
+// =============== TOKEN REFRESH QUEUE ===============
 let isRefreshing = false;
-let failedQueue: Array<{ resolve: (value: any) => void; reject: (reason?: any) => void }> = [];
+let failedQueue: Array<{
+  resolve: (value?: any) => void;     // ← Made optional
+  reject: (reason?: any) => void;
+}> = [];
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("csrf_token");
@@ -40,8 +43,7 @@ api.interceptors.response.use(
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject });
-        })
-          .then(() => api(originalRequest))
+        }).then(() => api(originalRequest))
           .catch((err) => Promise.reject(err));
       }
 
@@ -54,7 +56,7 @@ api.interceptors.response.use(
           credentials: "include",
         });
 
-        failedQueue.forEach((p) => p.resolve());
+        failedQueue.forEach((p) => p.resolve());     // ← Now works
         failedQueue = [];
         return api(originalRequest);
       } catch (refreshError) {
