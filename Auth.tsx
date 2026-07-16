@@ -151,3 +151,70 @@ api.interceptors.response.use(
 );
 
 export default api;
+
+
+
+/// latest 
+
+// src/context/AuthContext.tsx — FINAL, NO LOCALSTORAGE
+import { createContext, useContext, useState, useEffect, useCallback } from "react";
+import type { ReactNode } from "react";
+import api from "@/api/client";
+import type { User } from "@/types";   // Import from types folder
+
+interface AuthContextType {
+  user: User | null;
+  isLoading: boolean;
+  login: () => void;           // No csrfToken needed
+  logout: () => void;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const fetchUser = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const response = await api.get<User>("/api/auth/me");
+      setUser(response.data);
+    } catch {
+      setUser(null);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchUser();
+  }, [fetchUser]);
+
+  const login = () => {
+    fetchUser();           // Backend sets httpOnly cookie
+  };
+
+  const logout = async () => {
+    try {
+      await api.post("/api/auth/logout");
+    } catch {
+      console.warn("Logout failed");
+    } finally {
+      setUser(null);
+      window.location.href = "/login";
+    }
+  };
+
+  return (
+    <AuthContext.Provider value={{ user, isLoading, login, logout }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (!context) throw new Error("useAuth must be used within AuthProvider");
+  return context;
+}
