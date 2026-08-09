@@ -1,16 +1,72 @@
-// src/types/user.ts
-export interface User {
-  id: number;
-  email: string;
-  surname: string;
-  othernames: string;
-  phone?: string | null;
-  verified: boolean;
-  disabled: boolean;
-  date_added: string;
+
+export interface CountryCreate {
+  name: string;
+  currency_code: string;
+  whatsapp: string;
 }
 
-// src/types/index.ts
+export interface CreateCountryResponse {
+  message: string;
+  country: {
+    id: number;
+    name: string;
+    currency_code: string;
+    whatsapp: string;
+  };
+}
+
+
+//types/country/update.ts
+
+export interface CountryUpdate {
+  name?: string;
+  currency_code?: string;
+  whatsapp?: string;
+}
+
+
+//=types country read.ts
+
+export interface CountryRead {
+  id: number;
+  name: string;
+  currency_code: string;
+  whatsapp: string;
+  created_at: string;
+  updated_at: string;
+}
+
+
+
+//types list
+
+
+import type { CountryRead } from "./read";
+
+export interface CountryListRead {
+  total: number;
+  items: CountryRead[];
+}
+
+
+
+
+//country types index.ts
+
+
+export * from "./create";
+export * from "./update";
+export * from "./read";
+export * from "./list";
+
+
+//types index.ts
+
 export * from "./user";
+export * from "./country";
 export * from "./product";
-export * from "./auth";
+export * from "./common";
+
+
+
+
