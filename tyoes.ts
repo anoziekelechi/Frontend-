@@ -73,3 +73,35 @@ export interface LoginError {
   // You can add more specific error fields if your backend returns them
 }
 
+
+
+// use this
+
+// src/types/user/registration.ts
+export interface RegistrationData {
+  surname: string;
+  othernames: string;
+  email: string;
+  password: string;
+  phone?: string;
+}
+
+export interface RegistrationResponse {
+  message: string;
+  user?: {
+    id: number;
+    email: string;
+    surname: string;
+    othernames: string;
+  };
+}
+
+export interface RegistrationError {
+  detail?: string;
+  surname?: string[];
+  othernames?: string[];
+  email?: string[];
+  password?: string[];
+  phone?: string[];
+  general?: string;
+}
