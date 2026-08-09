@@ -1,64 +1,49 @@
-//main.tsx
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-//import './index.css'
-import { RouterProvider } from 'react-router-dom'
-import {router} from './App.tsx'
-import 'bootstrap/dist/css/bootstrap.min.css'
-//import 'bootstrap-icons/font/bootstrap-icons.css';
-//<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <RouterProvider router={router} />
-  </StrictMode>,
-)
+// src/context/SiteContext.tsx
+import { createContext, useContext, useState, useEffect, useCallback } from "react";
+import type { ReactNode } from "react";
+import api from "@/api/client";
+import type { SiteSettings } from "@/types/site";
 
+interface SiteContextType {
+  settings: SiteSettings | null;
+  isLoading: boolean;
+}
 
-//app.tsx
-import { createBrowserRouter, Outlet } from 'react-router-dom';
-import Navigation from './base/Navigation';
-import Home from './pages/Home'
-import Registration from './features/users/Registration';
-import Login from './features/users/Login';
-import Footer from './base/Footer';
-import Search from './base/Search';
-import Contact from './base/Contact';
-import Whatsapp from './base/Whatsapp';
-import NotFound from './NotFound';
+const SiteContext = createContext<SiteContextType | undefined>(undefined);
 
-// Create A layout components to hold common elements
-const Layout = () =>{
+export function SiteProvider({ children }: { children: ReactNode }) {
+  const [settings, setSettings] = useState<SiteSettings | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const fetchSettings = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const response = await api.get<SiteSettings>("/site-settings");
+      setSettings(response.data);
+    } catch (err) {
+      console.warn("Failed to fetch site settings");
+      setSettings(null);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSettings();
+  }, [fetchSettings]);
+
   return (
-    <>
-    <Whatsapp />
-    <Search />
-    <Navigation  />
-    
-      <Outlet />
-    
-    <Footer />
-    </>
+    <SiteContext.Provider value={{ settings, isLoading }}>
+      {children}
+    </SiteContext.Provider>
   );
-};
+}
 
-
-// define the routes <ScrollToTop />
-export const router = createBrowserRouter([
-
-  {
-    //path: '/',
-    element: <Layout />,
-    children: [
-      { path: '/', element: <Home />},
-      { path: 'login', element: <Login />},
-      { path: 'register', element: <Registration />},
-      { path: 'contactus', element: <Contact />},
-
-      // 404 route must be the last
-      {path: "*", element: <NotFound />},
-    ],
-  },
- 
-
-]);
+export function useSite() {
+  const context = useContext(SiteContext);
+  if (!context) {
+    throw new Error("useSite must be used within a SiteProvider");
+  }
+  return context;
+}
