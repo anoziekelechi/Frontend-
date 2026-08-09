@@ -1,49 +1,23 @@
+// pages/NotFound.tsx
+import { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 
-// src/context/SiteContext.tsx
-import { createContext, useContext, useState, useEffect, useCallback } from "react";
-import type { ReactNode } from "react";
-import api from "@/api/client";
-import type { SiteSettings } from "@/types/site";
-
-interface SiteContextType {
-  settings: SiteSettings | null;
-  isLoading: boolean;
-}
-
-const SiteContext = createContext<SiteContextType | undefined>(undefined);
-
-export function SiteProvider({ children }: { children: ReactNode }) {
-  const [settings, setSettings] = useState<SiteSettings | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  const fetchSettings = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      const response = await api.get<SiteSettings>("/site-settings");
-      setSettings(response.data);
-    } catch (err) {
-      console.warn("Failed to fetch site settings");
-      setSettings(null);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+const NotFound = () => {
+  const navigate = useNavigate();
 
   useEffect(() => {
-    fetchSettings();
-  }, [fetchSettings]);
+    const timer = setTimeout(() => {
+      navigate('/', { replace: true });
+    }, 2000);
+
+    return () => clearTimeout(timer);
+  }, [navigate]);
 
   return (
-    <SiteContext.Provider value={{ settings, isLoading }}>
-      {children}
-    </SiteContext.Provider>
+    <div className="text-center py-20">
+      <h1>Page not found</h1>
+    </div>
   );
-}
+};
 
-export function useSite() {
-  const context = useContext(SiteContext);
-  if (!context) {
-    throw new Error("useSite must be used within a SiteProvider");
-  }
-  return context;
-}
+export default NotFound;
