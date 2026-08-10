@@ -1,31 +1,51 @@
 
 @app.get("/")
 def home():
-    return {"message": "Welcome to ABC Shopping Plaza 🛒"}
+    return {"message": "Welcome to ABC Shopping 
 
 
 
-// src/pages/Home.tsx — FINAL, CLEAN
+
+
+            // src/pages/Home.tsx — FINAL
 import { useEffect, useState } from "react";
-import api from "@/api/client";  // your sacred Axios
+import api from "@/api/client";
+import { useAuth } from "@/context/AuthContext";
 
-export default function Home() {
-  const [message, setMessage] = useState("Loading...");
+const Home = () => {
+  const { user, isLoading: authLoading } = useAuth();
+  const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.get("/")
-      .then((res) => {
+    const fetchWelcomeMessage = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const res = await api.get("/");
         setMessage(res.data.message);
-      })
-      .catch((err) => {
+      } catch (err: any) {
         console.error(err);
-        setMessage("Failed to load welcome message");
-      })
-      .finally(() => {
+        setError(
+          err.response?.data?.detail || "Failed to load welcome message"
+        );
+      } finally {
         setLoading(false);
-      });
+      }
+    };
+
+    fetchWelcomeMessage();
   }, []);
+
+  if (authLoading || loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <p className="text-gray-600 animate-pulse">Loading...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -33,17 +53,24 @@ export default function Home() {
         <h1 className="text-4xl font-bold text-blue-800 mb-6">
           ABC Shopping Plaza
         </h1>
-        {loading ? (
-          <p className="text-gray-600 animate-pulse">Loading welcome...</p>
+
+        {error ? (
+          <p className="text-red-600 font-medium">{error}</p>
         ) : (
-          <p className="text-2xl text-gray-800 font-medium">
-            {message}
-          </p>
+          <>
+            <p className="text-2xl text-gray-800 font-medium mb-2">
+              {user ? `Welcome ${user.surname}` : "Welcome Guest"}
+            </p>
+            <p className="text-xl text-gray-700">{message}</p>
+          </>
         )}
+
         <p className="mt-8 text-sm text-gray-500">
-          Powered by FastAPI + React • Built like Moniepoint
+          Powered by FastAPI + React
         </p>
       </div>
     </div>
   );
-}
+};
+
+export default Home;
