@@ -1,4 +1,63 @@
+// src/context/SiteContext.tsx — FINAL (FIXED)
+import { createContext, useContext, useState, useEffect, useCallback } from "react";
+import type { ReactNode } from "react";
+import api from "@/api/client";
+import type { SiteSettings } from "@/types/site";
 
+interface SiteContextType {
+  settings: SiteSettings;
+  isLoading: boolean;
+}
+
+const SiteContext = createContext<SiteContextType | undefined>(undefined);
+
+const FALLBACK_SETTINGS: SiteSettings = {
+  id: 0,
+  sitename: "E commerce App",
+  intro: "",
+  aboutus: "",
+  mission: "",
+  vision: "",
+  logo_key: "",
+  banner_key: "",
+};
+
+export function SiteProvider({ children }: { children: ReactNode }) {
+  // ✅ Must be SiteSettings (NOT SiteSettings | null)
+  const [settings, setSettings] = useState<SiteSettings>(FALLBACK_SETTINGS);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const fetchSettings = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const response = await api.get<SiteSettings>("/site-settings");
+      setSettings(response.data);
+    } catch (err) {
+      console.warn("Failed to fetch site settings, using fallback");
+      setSettings(FALLBACK_SETTINGS);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSettings();
+  }, [fetchSettings]);
+
+  return (
+    <SiteContext.Provider value={{ settings, isLoading }}>
+      {children}
+    </SiteContext.Provider>
+  );
+}
+
+export function useSite() {
+  const context = useContext(SiteContext);
+  if (!context) {
+    throw new Error("useSite must be used within a SiteProvider");
+  }
+  return context;
+}
 // src/base/Navigation.tsx — FINAL VERSION
 import { Link } from "react-router-dom";
 import Container from "react-bootstrap/Container";
