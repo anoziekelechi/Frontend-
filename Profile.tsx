@@ -1,3 +1,56 @@
+async def get_current_user(
+    request: Request,
+    db: DBDep,
+) -> ReadUser:
+    """
+    Get current authenticated user from cookie.
+    
+    Used as a dependency in routes.
+    """
+    token = request.cookies.get("access_token")
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required!"
+        )
+    
+    payload = decode_access_token(token)
+    
+    user = await get_user_by_id(db, payload.sub)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found"
+        )
+    if user.disabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is disabled"
+        )
+    if not user.verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account not verified"
+        )
+    
+    return ReadUser.model_validate(user)
+
+
+
+
+async def get_authenticated_user(
+    request: Request,
+    db: DBDep,
+) -> ReadUser:
+    """
+    Dependency: Get current authenticated user.
+    
+    Usage:
+        @router.get("/profile")
+        async def profile(user: ReadUser = Depends(get_authenticated_user)):
+            ...
+    """
+    return await get_current_user(request=request, db=db)
 
 
 
