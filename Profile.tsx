@@ -11,18 +11,47 @@ async def get_profile(
     current_user: ReadUser = Depends(get_authenticated_user),
 ) -> ReadUser:
     """Get authenticated user's profile."""
-    return current_user
 
 
-
-// src/pages/Profile.tsx — FINAL (uses global user)
+// src/pages/Profile.tsx — FULL FINAL VERSION
+import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
+import api from "@/api/client";
 import { useAuth } from "@/context/AuthContext";
+import type { User } from "@/types/user";
 
 const Profile = () => {
-  const { user, isLoading, logout } = useAuth();
+  const { user: authUser, isLoading: authLoading, logout } = useAuth();
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  if (isLoading) {
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const res = await api.get<User>("/profile");
+        setUser(res.data);
+      } catch (err: any) {
+        console.error(err);
+        setError(
+          err.response?.data?.detail || "Failed to load profile"
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (!authLoading && authUser) {
+      fetchProfile();
+    } else if (!authLoading && !authUser) {
+      setLoading(false);
+    }
+  }, [authUser, authLoading]);
+
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <p className="text-gray-600 animate-pulse">Loading profile...</p>
@@ -30,10 +59,20 @@ const Profile = () => {
     );
   }
 
-  // Not logged in
-  if (!user) {
+  // Not logged in → redirect to login
+  if (!authUser) {
     return <Navigate to="/login" replace />;
   }
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-red-600 font-medium">{error}</p>
+      </div>
+    );
+  }
+
+  if (!user) return null;
 
   return (
     <div className="min-h-screen bg-gray-50 py-10 px-4">
@@ -79,14 +118,13 @@ const Profile = () => {
           <div className="flex justify-between border-b pb-3">
             <span className="font-medium text-gray-600">Member Since</span>
             <span>
-              {new Date(user.date_added || user.created_at || "").toLocaleDateString(
-                "en-GB",
-                {
-                  day: "numeric",
-                  month: "long",
-                  year: "numeric",
-                }
-              )}
+              {new Date(
+                user.date_added || user.created_at || ""
+              ).toLocaleDateString("en-GB", {
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+              })}
             </span>
           </div>
         </div>
