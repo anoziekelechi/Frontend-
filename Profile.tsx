@@ -64,6 +64,7 @@ async def get_profile(
     current_user: ReadUser = Depends(get_authenticated_user),
 ) -> ReadUser:
     """Get authenticated user's profile."""
+  return current_user 
 
 
 // src/pages/Profile.tsx — FULL FINAL VERSION
