@@ -1,6 +1,3 @@
-#modify by claude
-
-
 async def get_current_user(
     request: Request,
     db: DBDep,
@@ -33,13 +30,17 @@ async def get_current_user(
             detail="User not found"
         )
     if user.disabled:
+        # Session was valid at login but account has since been disabled.
+        # Treat as an invalid session, not a distinct permission error.
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Account is disabled"
         )
     if not user.verified:
+        # Same reasoning: login already gates on verified status, so this
+        # only triggers if verification was revoked after the token issued.
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Account not verified"
         )
 
@@ -60,6 +61,18 @@ async def get_authenticated_user(
     """
     return await get_current_user(request=request, db=db)
 
+
+@router.get(
+    "/profile",
+    response_model=ReadUser,
+    status_code=status.HTTP_200_OK,
+    summary="Get current user profile",
+)
+async def get_profile(
+    current_user: ReadUser = Depends(get_authenticated_user),
+) -> ReadUser:
+    """Get authenticated user's profile."""
+    return current_user
 
 @router.get(
     "/profile",
