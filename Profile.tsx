@@ -1,4 +1,25 @@
 
+class Group(BaseModel,table=True):# type: ignore
+    __tablename__ = "groups" # type: ignore
+    name: str = Field(
+        sa_column=Column(String(30),unique=True,nullable=False,index=True)
+        )
+    permission: str = Field(
+        sa_column=Column(String(30),unique=True,nullable=False,index=True)
+    )
+    
+    # one group many users one to many relationship
+    users: List["User"] = Relationship(back_populates="group", sa_relationship_kwargs={"passive_deletes":True})
+
+
+class User(BaseModel,table=True)
+      __tablename__ = "groups"
+
+      -------
+
+      #many users can belong to one group
+    group:Optional ["Group"] = Relationship(back_populates="users")
+####
       def require_admin():
     """Dependency: require admin user."""
     async def dependency(
