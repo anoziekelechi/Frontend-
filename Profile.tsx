@@ -1,3 +1,13 @@
+
+// Above the logout button or at top of page:
+{logoutMessage && (
+  <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-center">
+    {logoutMessage}
+  </div>
+)}
+
+
+
 // src/pages/Profile.tsx — FINAL
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
