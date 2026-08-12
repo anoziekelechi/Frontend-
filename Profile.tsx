@@ -1,12 +1,16 @@
 
-      import { useEffect, useState } from "react";
+  
+  
+  
+      // src/pages/Profile.tsx
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "@/api/client";
 import { useAuth } from "@/context/AuthContext";
 import type { User } from "@/types/user";
 
 const Profile = () => {
-  const { logout } = useAuth();
+  const { logout, logoutMessage } = useAuth();
   const navigate = useNavigate();
 
   const [user, setUser] = useState<User | null>(null);
@@ -28,7 +32,6 @@ const Profile = () => {
 
         setError(detail);
 
-        // 401 → not authenticated / invalid or expired session
         if (status === 401) {
           setTimeout(() => {
             navigate("/login", { replace: true });
@@ -36,7 +39,6 @@ const Profile = () => {
           return;
         }
 
-        // 403 → disabled or not verified
         if (status === 403) {
           const lower = String(detail).toLowerCase();
 
@@ -88,6 +90,13 @@ const Profile = () => {
       <div className="max-w-2xl mx-auto bg-white rounded-xl shadow-lg p-8">
         <h1 className="text-3xl font-bold text-gray-800 mb-8">My Profile</h1>
 
+        {/* Logout success message */}
+        {logoutMessage && (
+          <div className="mb-6 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-center">
+            {logoutMessage}
+          </div>
+        )}
+
         <div className="flex justify-center mb-8">
           {user.avatar ? (
             <img
@@ -115,7 +124,6 @@ const Profile = () => {
             <span className="font-medium text-gray-600">Other Names</span>
             <span>{user.othernames}</span>
           </div>
-          
           <div className="flex justify-between border-b pb-3">
             <span className="font-medium text-gray-600">Verified</span>
             <span>{user.verified ? "Yes" : "No"}</span>
@@ -139,14 +147,7 @@ const Profile = () => {
             </span>
           </div>
         </div>
-            
-    const { logout,logoutMessage } = useAuth();
-    {logoutMessage && (
-        <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-center">
-    {logoutMessage}
-        </div>
-    )}
-   
+
         <button
           onClick={logout}
           className="mt-10 w-full bg-red-600 hover:bg-red-700 text-white py-3 rounded-lg font-semibold transition"
@@ -159,102 +160,4 @@ const Profile = () => {
 };
 
 export default Profile;
-
-
-
-
-// AuthContext
-
-
-
-// src/context/AuthContext.tsx — FINAL, NO LOCALSTORAGE
-import { createContext, useContext, useState, useEffect, useCallback } from "react";
-import type { ReactNode } from "react";
-import api from "@/api/client";
-import type { User } from "@/types/user";   // Import from types folder
-
-interface AuthContextType {
-  user: User | null;
-  isLoading: boolean;
-  login: () => void;           // No csrfToken needed
-  logout: () => void;
-  logoutMessage:string | null;
-}
-
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  const fetchUser = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      const response = await api.get<User>("/auth/profile");
-      setUser(response.data);
-    } catch {
-      setUser(null);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchUser();
-  }, [fetchUser]);
-
-  const login = () => {
-    fetchUser();           // Backend sets httpOnly cookie
-  };
-// new
-const [logoutMessage, setLogoutMessage] = useState<string | null>(null);
-  const logout = async () => {
-    try {
-      const res =await api.post<{ message:string}>("/auth/logout");
-      setLogoutMessage(res.data.message);
-      setUser(null);
-
-      setTimeout(()=>{
-        setLogoutMessage(null);
-        window.location.href = "/"
-      },1500)
-    } catch {
-      console.warn("Logout failed");
-    } finally {
-      setUser(null);
-      window.location.href = "/";
-    }
-  };
-
-  return (
-    <AuthContext.Provider value={{ user, isLoading, login, logout, logoutMessage }}>
-      {children}
-    </AuthContext.Provider>
-  );
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (!context) throw new Error("useAuth must be used within AuthProvider");
-  return context;
-}
-
-
-
-//main.tsx
-
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <AuthProvider>
-      <SiteProvider>
-      <RouterProvider router={router} />
-      </SiteProvider>
-    </AuthProvider>
-  </StrictMode>,
-)
-
-  
-  
-  
-      
       
