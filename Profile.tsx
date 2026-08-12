@@ -1,8 +1,4 @@
-
-  
-  
-  
-      // src/pages/Profile.tsx
+// src/pages/Profile.tsx
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "@/api/client";
