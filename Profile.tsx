@@ -1,2 +1,27 @@
 
-      
+      def require_admin():
+    """Dependency: require admin user."""
+    async def dependency(
+        request: Request,
+        db: DBDep,
+    ) -> ReadUser:
+        user = await get_current_user(request, db)
+        if not user.is_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access Denied,Contact Admin"
+            )
+        return user
+    return dependency
+
+
+
+
+async def has_permission(user: ReadUser, required_perm: str) -> bool:
+    """Check if user has required permission."""
+    if user.is_admin:
+        return True
+    # Permission check requires loading group - do in route if needed
+    return False
+
+
