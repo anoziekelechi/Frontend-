@@ -1,56 +1,208 @@
-#initiate login
-# Anti-replay token
-    login_token = secrets.token_urlsafe(32)
-    await r.set(
-        f"login_attempt:{login_token}",
-        str(user_id),
+async def register_user(
+    data: CreateUser,
+    db: AsyncSession,
+    redis: Redis,
+    mailer: FastMail,
+    background_tasks: BackgroundTasks,
+    current_user: ReadUser | None = None,
+) -> dict:
+    """
+    Step 1: Register new user.
+    - block user if already logged in
+    - Validates email uniqueness
+    - Validates country exists
+    - Creates user (unverified)
+    - Sends OTP via email
+    - Returns registration token (anti-replay)
+    """
+    if current_user is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Logged in user cannot create account"
+        )
+    # Check email uniqueness
+    existing = await get_user_by_email(db, data.email)
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Email already registered"
+        )
+    
+    # Validate country exists
+    country = await db.get(Country, data.country_id)  # ✅ await
+    if not country:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Country not found"
+        )
+        
+    # Enforce user select a country
+    if data.country_id is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="Country is required")
+    # Create user
+    new_user = User(
+        surname=data.surname,
+        othernames=data.othernames,
+        email=data.email,
+        hashed_password=hash_password(data.password),
+        country_id=data.country_id,
+        is_admin=False,
+        disabled=False,
+        verified=False,
+        one_click=False,
+        payment_id=None,
+    )
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user)
+    
+    # Create registration session token (anti-replay)
+    reg_token = secrets.token_urlsafe(32)
+    await redis.set(
+        f"reg_attempt:{reg_token}",
+        str(new_user.id),
         ex=int(timedelta(minutes=OTP_EXPIRE_MINUTES).total_seconds()),
     )
-# complete login logic
- stored_id = await r.get(f"login_attempt:{data.account_token}")
+    
+    # Send OTP
+    await generate_and_send_otp(
+        user=new_user,
+        otp_type="registration",  # ✅ Fixed typo: otp_yype → otp_type
+        subject="Verify your account",
+        redis=redis,
+        mailer=mailer,
+        background_tasks=background_tasks,
+    )
+    logger.info(f"New registration started for {new_user.email} (user_id={new_user.id})")
+    
+    return {
+        "message": "OTP sent to your email",
+        "email": new_user.email,
+        "reg_token": reg_token,
+    }
 
 
-@router.get(
-    "/profile",
-    response_model=ReadUser,
-    status_code=status.HTTP_200_OK,
-    summary="Get current user profile",
-)
-async def get_profile(
-    current_user: ReadUser = Depends(get_authenticated_user),
+async def verify_registration_otp(
+    data: VerifyOtpRequest,
+    db: AsyncSession,
+    redis: Redis,
 ) -> ReadUser:
-    """Get authenticated user's profile."""
-    return current_user
+    """
+    Step 2: Verify registration OTP.
+    
+    - Validates session token (anti-replay)
+    - Validates OTP
+    - Marks user as verified
+    """
+    # Get user
+    user = await get_user_by_email(db, data.email)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    if user.verified:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Account already verified"
+        )
+    
+    # Validate session token
+    stored_id = await redis.get(f"reg_attempt:{data.account_token}")
+    if not stored_id or int(stored_id) != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Session expired or invalid"
+        )
+    await redis.delete(f"reg_attempt:{data.account_token}")
+    
+    # Validate OTP
+    otp_key = f"otp:{data.otp_code}:{user.id}:registration"
+    if not await redis.exists(otp_key):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="OTP expired or invalid"
+        )
+    await redis.delete(otp_key)
+    
+    # Mark user as verified
+    user.verified = True
+    user.date_verified = datetime.now(timezone.utc)
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    
+    return ReadUser.model_validate(user)
 
 
 
-@router.get(
-    "/profile",
-    response_model=UserProfile,
-    response_model_exclude_none=True,
+
+
+
+
+#routes
+
+
+    @router.post(
+    "/register",
+    status_code=status.HTTP_201_CREATED,
+    summary="Register new user account",
+    response_description="OTP sent to email",
 )
-async def get_profile(
-    current_user: User = Depends(get_authenticated_user),
-):
-    # Start with everything the schema can take from the User object
-    data = UserProfile.model_validate(current_user).model_dump()
+async def register(
+    data: CreateUser,
+    redis: RedisDep,
+    mailer: MailDep,
+    background_tasks: BackgroundTasks,   # ✅ No Depends() needed
+    db: DBDep,
+    current_user:ReadUser | None = Depends(get_optional_user),
+) -> dict:
+    """
+    Step 1: Register a new user.
+    
+    - Validates email uniqueness
+    - Validates country exists
+    - Creates unverified account
+    - Sends OTP to email
+    
+    Returns registration token for OTP verification step.
+    """
+    return await register_user(
+        data=data,
+        db=db,
+        redis=redis,
+        mailer=mailer,
+        background_tasks=background_tasks,
+        current_user=current_user
+    )
 
-    # Override / add the computed fields
-    data["country"] = current_user.country.name if current_user.country else None
 
-    if current_user.is_admin:
-        data["is_admin"] = True
-        data["permission"] = current_user.group.permission if current_user.group else None
-        data["name"] = current_user.group.name if current_user.group else None
-    else:
-        # Never show is_admin for normal users
-        data.pop("is_admin", None)
+@router.post(
+    "/register/verify",
+    status_code=status.HTTP_200_OK,
+    response_model=ReadUser,
+    summary="Verify registration OTP",
+)
+async def verify_registration(
+    data: VerifyOtpRequest,
+    redis: RedisDep,
+    db: DBDep,
 
-        if current_user.group:
-            data["permission"] = current_user.group.permission
-            data["name"] = current_user.group.name
-        else:
-            data.pop("permission", None)
-            data.pop("name", None)
+) -> ReadUser:
+    """
+    Step 2: Verify registration OTP.
+    
+    - Validates session token (anti-replay)
+    - Validates OTP
+    - Activates account
+    
+    Returns activated user profile.
+    """
+    return await verify_registration_otp(
+        data=data,
+        db=db,
+        redis=redis,
+    )
 
-    return data
+
+    
