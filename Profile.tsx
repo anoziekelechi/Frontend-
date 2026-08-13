@@ -100,9 +100,95 @@ async def initiate_login(
         "email": user.email,
         "login_token": login_token,
     }
+# new
+    async def complete_login(
+    data: VerifyOtpRequest,
+    db: AsyncSession,
+    redis: Redis,
+    response: Response,
+    current_user: ReadUser | None = None,   # ✅ Added
+) -> dict:
+    """
+    Step 2: Verify OTP and issue tokens.
 
+    Blocks already authenticated users.
+    Returns specific messages for disabled/unverified accounts.
+    """
+    # ✅ Block already logged in users
+    if current_user is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Already logged in. Please logout first."
+        )
 
+    user = await get_user_by_email(db, data.email)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials"
+        )
 
+    user_id = get_user_id(user)
+    r: Any = redis
+
+    # Validate session token
+    stored_id = await r.get(f"login_attempt:{data.account_token}")
+    if not stored_id or int(stored_id) != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Session expired or invalid"
+        )
+    await r.delete(f"login_attempt:{data.account_token}")
+
+    # Validate OTP
+    otp_key = f"otp:{data.otp_code}:{user_id}:login"
+    if not await r.exists(otp_key):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="OTP expired or invalid"
+        )
+    await r.delete(otp_key)
+
+    # Clear rate limit on success
+    await r.delete(f"login_rate:{user_id}")
+
+    # Check account status after OTP verification
+    if user.disabled:
+        logger.warning(f"Disabled user login attempt: user_id={user_id}")
+        return {
+            "status": "disabled",
+            "message": "Account suspended. Please contact admin.",
+            "email": user.email,
+        }
+
+    if not user.verified:
+        logger.info(f"Unverified user login attempt: user_id={user_id}")
+        return {
+            "status": "unverified",
+            "message": "Account not verified. Please check your email.",
+            "email": user.email,
+        }
+
+    # Issue tokens
+    access_token = create_access_token(user_id)
+    refresh_token = await create_refresh_token(user_id, redis)
+    csrf_token = await generate_csrf_token(user_id, redis)
+
+    set_auth_cookies(
+        response=response,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        csrf_token=csrf_token,
+    )
+
+    logger.info(f"Login successful for user_id={user_id}")
+
+    return {
+        "status": "success",
+        "message": "Login successful",
+    }
+
+#old
 async def complete_login(
     data: VerifyOtpRequest,
     db: AsyncSession,
