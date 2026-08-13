@@ -1,3 +1,15 @@
+#initiate login
+# Anti-replay token
+    login_token = secrets.token_urlsafe(32)
+    await r.set(
+        f"login_attempt:{login_token}",
+        str(user_id),
+        ex=int(timedelta(minutes=OTP_EXPIRE_MINUTES).total_seconds()),
+    )
+# complete login logic
+ stored_id = await r.get(f"login_attempt:{data.account_token}")
+
+
 @router.get(
     "/profile",
     response_model=ReadUser,
