@@ -1,3 +1,54 @@
+async def get_users(
+    db: AsyncSession,
+    skip: int = 0,
+    limit: int = 100,
+) -> AllUsers:  
+    
+    # Total Users
+    total: int = (
+        await db.execute(
+            select(func.count()).select_from(User)
+        )
+    ).scalar() or 0
+    
+    result = await db.execute(
+        select(User)
+        .options(selectinload(User.country)) # type:ignore[arg-type]
+        .order_by(asc("created_at"))  #(User.created_at.asc())
+        .offset(skip)
+        .limit(limit)
+    )
+    users = result.scalars().all()
+
+    return AllUsers(
+        total=total,
+        users=[   
+            ReadUser(
+                id=user.id,  # type: ignore
+                email=user.email,
+                surname=user.surname,
+                othernames=user.othernames,
+                country=user.country.name if user.country else None,
+                is_admin=user.is_admin,
+                verified=user.verified,
+                disabled=user.disabled,
+                date_verified=user.date_verified,
+                created_at=user.created_at,
+            )
+            for user in users
+        ],
+    )
+
+
+class GroupRead(BaseModel):
+    """Group response schema."""
+    model_config = ConfigDict(from_attributes=True)  # ✅ Pydantic v2
+    
+    id: int
+    name: str
+    permission: str
+    created_at: datetime
+    updated_at: datetime
 
 async def list_groups(
     db: AsyncSession,
