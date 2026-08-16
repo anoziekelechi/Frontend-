@@ -1,89 +1,44 @@
 
+async def list_groups(
+    db: AsyncSession,
+    skip: int = 0,
+    limit: int = 100,
+) -> list[GroupRead]:
+    """
+    List all permission groups with pagination.
+    
+    Args:
+        skip: Number of records to skip
+        limit: Maximum records to return
+    """
+    result = await db.execute(
+        select(Group)
+        .order_by(Group.name)
+        .offset(skip)
+        .limit(limit)
+    )
+    groups = result.scalars().all()
+    return [GroupRead.model_validate(g) for g in groups]
 
-// src/base/AccountNavigation.tsx
 
 
 
+class Offices(BaseModel,table=True): # type: ignore
+    __tablename__ = "offices"  # type: ignore
+    # FK LINKING TO COUNTRY TABLE
+    country_id: int = Field (
+        sa_column=Column(
+            Integer,
+            ForeignKey("countries.id", ondelete="CASCADE"),
+            nullable= False
+        )
+    )
+    address:str | None = Field(default=None,sa_column=Column(Text, nullable=True))
+    whatsapp:int| None = Field(default=None, gt=0)
+    phone_number:str | None = Field(default=None,sa_column=Column(String(20),nullable=True))
+    email: EmailStr | None = Field(default=None,sa_column=Column(String(50),index=True,unique=True))
+    # Relationship to access country data directly
+    country:Optional["Country"] = Relationship(back_populates="offices")
 
-// src/base/Navigation.tsx
-import { Link } from "react-router-dom";
-import Container from "react-bootstrap/Container";
-import Nav from "react-bootstrap/Nav";
-import Navbar from "react-bootstrap/Navbar";
-import { useAuth } from "@/context/AuthContext";
-import { useSite } from "@/context/SiteContext";
 
-const Navigation = () => {
-  const { user, isLoading: authLoading } = useAuth();
-  const { settings, isLoading: siteLoading } = useSite();
-
-  if (authLoading || siteLoading) {
-    return (
-      <Navbar expand="sm" className="bg-body-tertiary mt-2">
-        <Container fluid>
-          <Navbar.Brand>Loading...</Navbar.Brand>
-        </Container>
-      </Navbar>
-    );
-  }
-
-  return (
-    <Navbar
-      collapseOnSelect
-      expand="sm"
-      className="bg-body-tertiary mt-2 shadow-sm"
-    >
-      <Container fluid>
-        <Navbar.Brand
-          as={Link}
-          to="/"
-          className="d-flex align-items-center gap-2"
-        >
-          {settings.logo_key && (
-            <img
-              src={settings.logo_key}
-              alt={settings.sitename}
-              height="36"
-              className="d-inline-block"
-            />
-          )}
-          <span className="fw-bold">{settings.sitename}</span>
-        </Navbar.Brand>
-
-        <Navbar.Toggle aria-controls="responsive-navbar-nav" />
-
-        <Navbar.Collapse id="responsive-navbar-nav">
-          <Nav className="me-auto">
-            <Nav.Link as={Link} to="/">
-              Home
-            </Nav.Link>
-            <Nav.Link as={Link} to="/categories">
-              Categories
-            </Nav.Link>
-
-            {/* Admin only */}
-            {user?.is_admin && (
-              <>
-                <Nav.Link as={Link} to="/add_permission">
-                  Add Permission
-                </Nav.Link>
-                <Nav.Link as={Link} to="/revoke_permission">
-                  Revoke Permission
-                </Nav.Link>
-                <Nav.Link as={Link} to="/disabled_user">
-                  Disabled Users
-                </Nav.Link>
-                <Nav.Link as={Link} to="/add_country">
-                  Add Country
-                </Nav.Link>
-              </>
-            )}
-          </Nav>
-        </Navbar.Collapse>
-      </Container>
-    </Navbar>
-  );
-};
-
-export default Navigation;
 
