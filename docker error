@@ -1,3 +1,13 @@
+ cors_origin: list[str] = Field(default=["http://localhost:5137"],alias="CORS_ORIGIN")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins= ["settings.cors_origin,"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"]
+)
+
+
 
 router = APIRouter(prefix="/home", tags=["Home Configuration"])
 
