@@ -1,3 +1,38 @@
+ Container ecommerce-frontend-1  Stopped                                                                                                            0.2s 
+anoziekelechi@Anozies-MacBook-Pro Ecommerce % docker compose up frontend backend
+WARN[0000] The "POSTGRES_DB" variable is not set. Defaulting to a blank string. 
+WARN[0000] The "POSTGRES_USER" variable is not set. Defaulting to a blank string. 
+[+] Running 4/4
+ ✔ Container ecommerce-frontend-1  Created                                                                                                            0.0s 
+ ✔ Container ecommerce-redis-1     Running                                                                                                            0.0s 
+ ✔ Container ecommerce-db-1        Running                                                                                                            0.0s 
+ ✔ Container ecommerce-backend-1   Created                                                                                                            0.0s 
+Attaching to backend-1, frontend-1
+frontend-1  | 
+frontend-1  | > frontend@0.0.0 dev
+frontend-1  | > vite
+frontend-1  | 
+backend-1   | INFO:     Will watch for changes in these directories: ['/app']
+backend-1   | INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+backend-1   | INFO:     Started reloader process [1] using WatchFiles
+frontend-1  | 
+frontend-1  |   ROLLDOWN-VITE v7.2.5  ready in 676 ms
+frontend-1  | 
+frontend-1  |   ➜  Local:   http://localhost:5173/
+frontend-1  |   ➜  Network: use --host to expose
+backend-1   | INFO:     Started server process [7]
+backend-1   | INFO:     Waiting for application startup.
+backend-1   | INFO:api.main:starting application
+backend-1   | INFO:api.main:database connection pool ready
+backend-1   | INFO:api.main:redis connected successfully ->True
+backend-1   | INFO:api.main:Email service running
+backend-1   | INFO:api.main:All services running
+backend-1   | INFO:     Application startup complete.
+
+
+v View in Docker Desktop   o View Config   w Enable Watch
+
+
 #settings.py
 cors_origin: list[str] = Field(default=["http://localhost:5137"],alias="CORS_ORIGIN")
 #main.py
