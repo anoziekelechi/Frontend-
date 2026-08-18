@@ -1,4 +1,19 @@
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
 
+export interface LoginResponse {
+  message: string;
+  email: string;
+  login_token: string;
+}
+
+export interface VerifyLoginResponse {
+  status: "success" | "disabled" | "unverified";
+  message: string;
+  email?: string;
+}
 
 
 export interface CreateUser {
