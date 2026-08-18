@@ -1,4 +1,6 @@
- cors_origin: list[str] = Field(default=["http://localhost:5137"],alias="CORS_ORIGIN")
+#settings.py
+cors_origin: list[str] = Field(default=["http://localhost:5137"],alias="CORS_ORIGIN")
+#main.py
 app.add_middleware(
     CORSMiddleware,
     allow_origins= ["settings.cors_origin,"],
