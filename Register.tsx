@@ -22,6 +22,364 @@ export interface VerifyOtpRequest {
 }
 
 
+// src/pages/users/Registration.tsx
+import { useEffect, useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { useNavigate, Link } from "react-router-dom";
+import api from "@/api/client";
+import { useAuth } from "@/context/AuthContext";
+import type { CreateUser, RegisterResponse } from "@/types/user";
+import type { CountryListRead } from "@/types/country";
+
+const schema = z.object({
+  surname: z.string().min(2, "Surname is required"),
+  othernames: z.string().min(2, "Other names are required"),
+  email: z.string().email("Invalid email"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+  country_id: z.coerce.number().min(1, "Country is required"),
+});
+
+// Form data matches CreateUser
+type FormData = CreateUser;
+
+const Registration = () => {
+  const navigate = useNavigate();
+  const { user, isLoading: authLoading } = useAuth();
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [countries, setCountries] = useState<{ id: number; name: string }[]>([]);
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+    setError,
+  } = useForm<FormData>({
+    resolver: zodResolver(schema),
+  });
+
+  useEffect(() => {
+    api
+      .get<CountryListRead>("/countries")
+      .then((res) => setCountries(res.data.items || []))
+      .catch(() => setCountries([]));
+  }, []);
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-gray-600 animate-pulse">Loading...</p>
+      </div>
+    );
+  }
+
+  if (user) {
+    navigate("/profile", { replace: true });
+    return null;
+  }
+
+  const onSubmit = async (data: CreateUser) => {
+    setServerError(null);
+    setSuccessMessage(null);
+
+    try {
+      const res = await api.post<RegisterResponse>("/register", data);
+
+      // Show API message
+      setSuccessMessage(res.data.message); // "OTP sent to your email"
+
+      setTimeout(() => {
+        navigate("/register/verify", {
+          state: {
+            email: res.data.email,
+            reg_token: res.data.reg_token,
+          },
+        });
+      }, 1500);
+    } catch (err: any) {
+      const status = err.response?.status;
+      const detail = err.response?.data?.detail;
+
+      if (status === 403) {
+        setServerError(detail || "Logged in user cannot create account");
+        setTimeout(() => {
+          navigate("/profile", { replace: true });
+        }, 2000);
+        return;
+      }
+
+      if (status === 422 && Array.isArray(detail)) {
+        detail.forEach((e: any) => {
+          const field = e.loc?.[e.loc.length - 1];
+          if (typeof field === "string") {
+            setError(field as keyof FormData, { message: e.msg });
+          }
+        });
+      } else {
+        setServerError(detail || "Registration failed");
+      }
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8">
+        <h1 className="text-2xl font-bold text-center mb-6">Create Account</h1>
+
+        {successMessage && (
+          <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-center">
+            {successMessage}
+            <p className="text-sm mt-1">Redirecting to verification...</p>
+          </div>
+        )}
+
+        {serverError && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-center">
+            {serverError}
+            {serverError.toLowerCase().includes("logged in") && (
+              <p className="text-sm mt-1">Redirecting to profile...</p>
+            )}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">Surname</label>
+            <input
+              {...register("surname")}
+              className={`w-full px-4 py-3 border rounded-lg ${
+                errors.surname ? "border-red-500" : "border-gray-300"
+              }`}
+            />
+            {errors.surname && (
+              <p className="text-sm text-red-600 mt-1">{errors.surname.message}</p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Other Names</label>
+            <input
+              {...register("othernames")}
+              className={`w-full px-4 py-3 border rounded-lg ${
+                errors.othernames ? "border-red-500" : "border-gray-300"
+              }`}
+            />
+            {errors.othernames && (
+              <p className="text-sm text-red-600 mt-1">{errors.othernames.message}</p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Email</label>
+            <input
+              type="email"
+              {...register("email")}
+              className={`w-full px-4 py-3 border rounded-lg ${
+                errors.email ? "border-red-500" : "border-gray-300"
+              }`}
+            />
+            {errors.email && (
+              <p className="text-sm text-red-600 mt-1">{errors.email.message}</p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Password</label>
+            <input
+              type="password"
+              {...register("password")}
+              className={`w-full px-4 py-3 border rounded-lg ${
+                errors.password ? "border-red-500" : "border-gray-300"
+              }`}
+            />
+            {errors.password && (
+              <p className="text-sm text-red-600 mt-1">{errors.password.message}</p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Country</label>
+            <select
+              {...register("country_id")}
+              className={`w-full px-4 py-3 border rounded-lg ${
+                errors.country_id ? "border-red-500" : "border-gray-300"
+              }`}
+              defaultValue=""
+            >
+              <option value="" disabled>
+                Select country
+              </option>
+              {countries.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            {errors.country_id && (
+              <p className="text-sm text-red-600 mt-1">{errors.country_id.message}</p>
+            )}
+          </div>
+
+          <button
+            type="submit"
+            disabled={isSubmitting || !!successMessage}
+            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold disabled:opacity-50"
+          >
+            {isSubmitting ? "Creating..." : "Register"}
+          </button>
+        </form>
+
+        <p className="text-center mt-6 text-sm text-gray-600">
+          Already have an account?{" "}
+          <Link to="/login" className="text-blue-600 font-medium">
+            Login
+          </Link>
+        </p>
+      </div>
+    </div>
+  );
+};
+
+export default Registration;
+
+
+
+// src/pages/users/VerifyRegistration.tsx
+import { useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import api from "@/api/client";
+import type { User } from "@/types/user";
+
+const schema = z.object({
+  otp_code: z
+    .string()
+    .length(6, "OTP must be 6 digits")
+    .regex(/^\d+$/, "OTP must be numbers only"),
+});
+
+type FormData = z.infer<typeof schema>;
+
+const VerifyRegistration = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const { email, reg_token } = (location.state || {}) as {
+    email?: string;
+    reg_token?: string;
+  };
+
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm<FormData>({
+    resolver: zodResolver(schema),
+  });
+
+  if (!email || !reg_token) {
+    navigate("/register", { replace: true });
+    return null;
+  }
+
+  const onSubmit = async (data: FormData) => {
+    setServerError(null);
+    setSuccessMessage(null);
+
+    try {
+      await api.post<User>("/register/verify", {
+        email,
+        account_token: reg_token,
+        otp_code: data.otp_code,
+      });
+
+      setSuccessMessage(
+        "Your account has been verified successfully. You can now log in."
+      );
+
+      setTimeout(() => {
+        navigate("/login", { replace: true });
+      }, 2000);
+    } catch (err: any) {
+      const status = err.response?.status;
+      const detail = err.response?.data?.detail || "Invalid or expired OTP";
+
+      if (status === 409) {
+        setServerError(detail);
+        setTimeout(() => {
+          navigate("/profile", { replace: true });
+        }, 2000);
+        return;
+      }
+
+      setServerError(detail);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8 text-center">
+        <h1 className="text-2xl font-bold mb-2">Verify Your Email</h1>
+        <p className="text-gray-600 mb-6">
+          We sent a 6-digit code to
+          <br />
+          <strong>{email}</strong>
+        </p>
+
+        {successMessage && (
+          <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg">
+            {successMessage}
+            <p className="text-sm mt-1">Redirecting to login...</p>
+          </div>
+        )}
+
+        {serverError && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg">
+            {serverError}
+            {serverError.toLowerCase().includes("already verified") && (
+              <p className="text-sm mt-1">Redirecting to profile...</p>
+            )}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+          <div>
+            <input
+              {...register("otp_code")}
+              maxLength={6}
+              autoFocus
+              placeholder="000000"
+              className={`w-full px-4 py-4 text-center text-3xl tracking-widest font-mono border rounded-lg ${
+                errors.otp_code ? "border-red-500" : "border-gray-300"
+              }`}
+            />
+            {errors.otp_code && (
+              <p className="text-sm text-red-600 mt-2">{errors.otp_code.message}</p>
+            )}
+          </div>
+
+          <button
+            type="submit"
+            disabled={isSubmitting || !!successMessage}
+            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold disabled:opacity-50"
+          >
+            {isSubmitting ? "Verifying..." : "Verify Account"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+export default VerifyRegistration;
+
 
 // src/pages/users/Login.tsx
 import { useForm } from "react-hook-form";
