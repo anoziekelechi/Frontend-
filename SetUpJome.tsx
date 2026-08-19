@@ -1,3 +1,18 @@
+Type 'Resolver<{ sitename: string; aboutus?: string | undefined; intro?: string | undefined; mission?: string | undefined; vision?: string | undefined; logo_key?: any; banner_key?: any; }, any, { sitename: string; ... 5 more ...; banner_key?: any; }>' is not assignable to type 'Resolver<HomeSetupForm, any, HomeSetupForm>'.
+  Types of parameters 'options' and 'options' are incompatible.
+    Type 'ResolverOptions<HomeSetupForm>' is not assignable to type 'ResolverOptions<{ sitename: string; aboutus?: string | undefined; intro?: string | undefined; mission?: string | undefined; vision?: string | undefined; logo_key?: any; banner_key?: any; }>'.
+      Type 'string | undefined' is not assignable to type 'string'.
+        Type 'undefined' is not assignable to type 'string'.ts(2322)
+(property
+
+ Argument of type '(data: HomeSetupForm) => Promise<void>' is not assignable to parameter of type 'SubmitHandler<TFieldValues, Promise<void>>'.
+  Types of parameters 'data' and 'data' are incompatible.
+    Type 'TFieldValues' is not assignable to type 'HomeSetupForm'.
+      Type 'FieldValues' is missing the following properties from type 'HomeSetupForm': sitename, intro, aboutus, mission, and 3 more.ts(2345)
+const onSubmit: (data: HomeSetupForm) => Promise<void>
+
+
+
 // src/pages/admin/SetupHome.tsx
 import { useState } from "react";
 import { useForm } from "react-hook-form";
