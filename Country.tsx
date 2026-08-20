@@ -1,92 +1,172 @@
- return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8">
-        <h1 className="text-2xl font-bold mb-6 text-center">Create Country</h1>
+// src/pages/countries/CreateCountry.tsx
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { useNavigate } from "react-router-dom";
+import Form from "react-bootstrap/Form";
+import Button from "react-bootstrap/Button";
+import Container from "react-bootstrap/Container";
+import Alert from "react-bootstrap/Alert";
+import api from "@/api/client";
+import type { CountryCreate, CreateCountryResponse } from "@/types/country";
+
+const schema = z.object({
+  name: z.string().min(2, "Country name is required"),
+  currency_code: z
+    .string()
+    .length(3, "Currency code must be 3 characters")
+    .transform((v) => v.toUpperCase()),
+  whatsapp: z.string().optional().or(z.literal("")),
+  email_support: z
+    .string()
+    .email("Invalid support email")
+    .optional()
+    .or(z.literal("")),
+});
+
+type FormData = CountryCreate;
+
+const CreateCountry = () => {
+  const navigate = useNavigate();
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [serverError, setServerError] = useState<string | null>(null);
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+    setError,
+  } = useForm<FormData>({
+    resolver: zodResolver(schema) as any,
+  });
+
+  const onSubmit = async (data: CountryCreate) => {
+    setServerError(null);
+    setSuccessMessage(null);
+
+    try {
+      const payload: CountryCreate = {
+        name: data.name,
+        currency_code: data.currency_code,
+        whatsapp: data.whatsapp || undefined,
+        email_support: data.email_support || undefined,
+      };
+
+      const res = await api.post<CreateCountryResponse>("/add_country", payload);
+      setSuccessMessage(res.data.message);
+
+      setTimeout(() => navigate("/countries"), 1800);
+    } catch (error: any) {
+      const status = error.response?.status;
+      const detail = error.response?.data?.detail;
+
+      if (status === 409) {
+        setServerError(detail);
+      } else if (status === 422 && Array.isArray(detail)) {
+        detail.forEach((err: any) => {
+          const field = err.loc?.[err.loc.length - 1];
+          if (typeof field === "string") {
+            setError(field as keyof FormData, { message: err.msg });
+          }
+        });
+      } else {
+        setServerError(
+          typeof detail === "string" ? detail : "Something went wrong"
+        );
+      }
+    }
+  };
+
+  return (
+    <Container className="py-5" style={{ maxWidth: 480 }}>
+      <div className="bg-white p-4 rounded shadow-sm">
+        <h1 className="h3 text-center mb-4">Create Country</h1>
 
         {successMessage && (
-          <div className="mb-6 p-4 bg-green-50 border border-green-200 text-green-700 rounded-lg text-center">
+          <Alert variant="success" className="text-center">
             {successMessage}
-            <p className="text-sm mt-1">Redirecting...</p>
-          </div>
+            <div className="small mt-1">Redirecting...</div>
+          </Alert>
         )}
 
         {serverError && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg text-center">
+          <Alert variant="danger" className="text-center">
             {serverError}
-          </div>
+          </Alert>
         )}
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-          <div>
-            <label className="block text-sm font-medium mb-1">Country Name</label>
-            <input
+        <Form onSubmit={handleSubmit(onSubmit)}>
+          <Form.Group className="mb-3" controlId="countryName">
+            <Form.Label>Country Name</Form.Label>
+            <Form.Control
+              type="text"
+              isInvalid={!!errors.name}
               {...register("name")}
-              className={`w-full px-4 py-3 border rounded-lg ${
-                errors.name ? "border-red-500" : "border-gray-300"
-              }`}
             />
-            {errors.name && (
-              <p className="text-sm text-red-600 mt-1">{errors.name.message}</p>
-            )}
-          </div>
+            <Form.Control.Feedback type="invalid">
+              {errors.name?.message}
+            </Form.Control.Feedback>
+          </Form.Group>
 
-          <div>
-            <label className="block text-sm font-medium mb-1">Currency Code</label>
-            <input
-              {...register("currency_code")}
+          <Form.Group className="mb-3" controlId="currencyCode">
+            <Form.Label>Currency Code</Form.Label>
+            <Form.Control
+              type="text"
               maxLength={3}
-              className={`w-full px-4 py-3 border rounded-lg uppercase ${
-                errors.currency_code ? "border-red-500" : "border-gray-300"
-              }`}
+              className="text-uppercase"
+              isInvalid={!!errors.currency_code}
+              {...register("currency_code")}
             />
-            {errors.currency_code && (
-              <p className="text-sm text-red-600 mt-1">
-                {errors.currency_code.message}
-              </p>
-            )}
-          </div>
+            <Form.Control.Feedback type="invalid">
+              {errors.currency_code?.message}
+            </Form.Control.Feedback>
+          </Form.Group>
 
-          <div>
-            <label className="block text-sm font-medium mb-1">WhatsApp</label>
-            <input
+          <Form.Group className="mb-3" controlId="whatsapp">
+            <Form.Label>WhatsApp</Form.Label>
+            <Form.Control
+              type="text"
+              placeholder="Optional"
+              isInvalid={!!errors.whatsapp}
               {...register("whatsapp")}
-              className={`w-full px-4 py-3 border rounded-lg ${
-                errors.whatsapp ? "border-red-500" : "border-gray-300"
-              }`}
-              placeholder="Optional"
             />
-            {errors.whatsapp && (
-              <p className="text-sm text-red-600 mt-1">{errors.whatsapp.message}</p>
-            )}
-          </div>
+            <Form.Control.Feedback type="invalid">
+              {errors.whatsapp?.message}
+            </Form.Control.Feedback>
+          </Form.Group>
 
-          <div>
-            <label className="block text-sm font-medium mb-1">Support Email</label>
-            <input
+          <Form.Group className="mb-4" controlId="emailSupport">
+            <Form.Label>Support Email</Form.Label>
+            <Form.Control
               type="email"
-              {...register("email_support")}
-              className={`w-full px-4 py-3 border rounded-lg ${
-                errors.email_support ? "border-red-500" : "border-gray-300"
-              }`}
               placeholder="Optional"
+              isInvalid={!!errors.email_support}
+              {...register("email_support")}
             />
-            {errors.email_support && (
-              <p className="text-sm text-red-600 mt-1">
-                {errors.email_support.message}
-              </p>
-            )}
-          </div>
+            <Form.Control.Feedback type="invalid">
+              {errors.email_support?.message}
+            </Form.Control.Feedback>
+          </Form.Group>
 
-          <button
+          <Button
             type="submit"
+            variant="primary"
+            className="w-100"
             disabled={isSubmitting || !!successMessage}
-            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold disabled:opacity-50"
           >
             {isSubmitting ? "Creating..." : "Create Country"}
-          </button>
-        </form>
+          </Button>
+        </Form>
       </div>
-    </div>
+    </Container>
+  );
+};
+
+export default CreateCountry;
+
+
+
 // src/pages/countries/CountriesList.tsx
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
