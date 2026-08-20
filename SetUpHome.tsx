@@ -4,6 +4,10 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useNavigate } from "react-router-dom";
+import Form from "react-bootstrap/Form";
+import Button from "react-bootstrap/Button";
+import Container from "react-bootstrap/Container";
+import Alert from "react-bootstrap/Alert";
 import api from "@/api/client";
 import type { HomeSetupResponse } from "@/types/site";
 
@@ -38,8 +42,6 @@ const SetupHome = () => {
       formData.append("sitename", data.sitename);
 
       if (data.intro) formData.append("intro", data.intro);
-      
-      
 
       if (data.logo_key?.[0]) {
         formData.append("logo_key", data.logo_key[0]);
@@ -68,88 +70,78 @@ const SetupHome = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-2xl bg-white rounded-xl shadow-lg p-8">
-        <h1 className="text-2xl font-bold mb-6 text-center">
-          Setup Home Settings
-        </h1>
+    <Container className="py-5" style={{ maxWidth: 640 }}>
+      <div className="bg-white p-4 rounded shadow-sm">
+        <h1 className="h3 text-center mb-4">Setup Home Settings</h1>
 
         {successMessage && (
-          <div className="mb-6 p-4 bg-green-50 border border-green-200 text-green-700 rounded-lg text-center">
+          <Alert variant="success" className="text-center">
             {successMessage}
-            <p className="text-sm mt-1">Redirecting to homepage...</p>
-          </div>
+            <div className="small mt-1">Redirecting to homepage...</div>
+          </Alert>
         )}
 
         {serverError && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg text-center">
+          <Alert variant="danger" className="text-center">
             {serverError}
-          </div>
+          </Alert>
         )}
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-          <div>
-            <label className="block text-sm font-medium mb-1">Site Name *</label>
-            <input
+        <Form onSubmit={handleSubmit(onSubmit)}>
+          <Form.Group className="mb-3" controlId="sitename">
+            <Form.Label>Site Name *</Form.Label>
+            <Form.Control
+              type="text"
+              isInvalid={!!errors.sitename}
               {...register("sitename")}
-              className={`w-full px-4 py-3 border rounded-lg ${
-                errors.sitename ? "border-red-500" : "border-gray-300"
-              }`}
             />
-            {errors.sitename && (
-              <p className="text-sm text-red-600 mt-1">{errors.sitename.message}</p>
-            )}
-          </div>
+            <Form.Control.Feedback type="invalid">
+              {errors.sitename?.message}
+            </Form.Control.Feedback>
+          </Form.Group>
 
-          <div>
-            <label className="block text-sm font-medium mb-1">Intro</label>
-            <textarea
-              {...register("intro")}
+          <Form.Group className="mb-3" controlId="intro">
+            <Form.Label>Intro</Form.Label>
+            <Form.Control
+              as="textarea"
               rows={3}
-              className="w-full px-4 py-3 border rounded-lg border-gray-300"
+              {...register("intro")}
             />
-          </div>
- 
+          </Form.Group>
 
-          <div>
-            <label className="block text-sm font-medium mb-1">Logo</label>
-            <input
+          <Form.Group className="mb-3" controlId="logo_key">
+            <Form.Label>Logo</Form.Label>
+            <Form.Control
               type="file"
               accept="image/*"
               {...register("logo_key")}
-              className="w-full"
             />
-          </div>
+          </Form.Group>
 
-          <div>
-            <label className="block text-sm font-medium mb-1">Banner</label>
-            <input
+          <Form.Group className="mb-4" controlId="banner_key">
+            <Form.Label>Banner</Form.Label>
+            <Form.Control
               type="file"
               accept="image/*"
               {...register("banner_key")}
-              className="w-full"
             />
-          </div>
+          </Form.Group>
 
-          <button
+          <Button
             type="submit"
+            variant="primary"
+            className="w-100"
             disabled={isSubmitting || !!successMessage}
-            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold disabled:opacity-50"
           >
             {isSubmitting ? "Saving..." : "Save Home Settings"}
-          </button>
-        </form>
+          </Button>
+        </Form>
       </div>
-    </div>
+    </Container>
   );
 };
 
 export default SetupHome;
-        
-          
-
-
-
 
 // src/routes/AdminRoute.tsx
 import { Navigate } from "react-router-dom";
@@ -241,273 +233,7 @@ export default function SetupHome() {
     return <Navigate to="/" replace />;
   }
 
-  // ... rest of your form
-}
-
-//contact-admin 
-
-
-// src/features/users/ContactAdmin.tsx
-import { useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { Link } from "react-router-dom";
-import api from "@/api/client";
-import type { ContactAdminResponse } from "@/types/user";
-
-const schema = z.object({
-  email: z.string().email("Invalid email"),
-  message: z
-    .string()
-    .min(10, "Message must be at least 10 characters")
-    .max(1000, "Message is too long"),
-});
-
-type FormData = z.infer<typeof schema>;
-
-const ContactAdmin = () => {
-  const [serverError, setServerError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-
-  const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { errors, isSubmitting },
-  } = useForm<FormData>({
-    resolver: zodResolver(schema),
-  });
-
-  const onSubmit = async (data: FormData) => {
-    setServerError(null);
-    setSuccessMessage(null);
-
-    try {
-      const res = await api.post<ContactAdminResponse>("/contact-admin", data);
-      setSuccessMessage(res.data.message || "Message sent to admin");
-      reset();
-    } catch (err: any) {
-      setServerError(
-        err.response?.data?.detail || "Failed to send message"
-      );
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8">
-        <h1 className="text-2xl font-bold text-center mb-2">Contact Admin</h1>
-        <p className="text-center text-gray-600 mb-6 text-sm">
-          Your account appears to be suspended. Send a message to request
-          reactivation.
-        </p>
-
-        {successMessage && (
-          <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-center">
-            {successMessage}
-          </div>
-        )}
-
-        {serverError && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-center">
-            {serverError}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-          <div>
-            <label className="block text-sm font-medium mb-1">Email</label>
-            <input
-              type="email"
-              {...register("email")}
-              className={`w-full px-4 py-3 border rounded-lg ${
-                errors.email ? "border-red-500" : "border-gray-300"
-              }`}
-              placeholder="your@email.com"
-            />
-            {errors.email && (
-              <p className="text-sm text-red-600 mt-1">{errors.email.message}</p>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Message</label>
-            <textarea
-              {...register("message")}
-              rows={5}
-              className={`w-full px-4 py-3 border rounded-lg ${
-                errors.message ? "border-red-500" : "border-gray-300"
-              }`}
-              placeholder="Explain why your account should be reactivated..."
-            />
-            {errors.message && (
-              <p className="text-sm text-red-600 mt-1">{errors.message.message}</p>
-            )}
-          </div>
-
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold disabled:opacity-50"
-          >
-            {isSubmitting ? "Sending..." : "Send Message"}
-          </button>
-        </form>
-
-        <p className="text-center mt-6 text-sm">
-          <Link to="/login" className="text-blue-600 font-medium">
-            Back to Login
-          </Link>
-        </p>
-      </div>
-    </div>
-  );
-};
-
-export default ContactAdmin;
-
-//resendotp
-
-
-
-
-// src/features/users/ResendOtp.tsx
-import { useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { Link, useLocation } from "react-router-dom";
-import api from "@/api/client";
-import type { ResendVerificationResponse } from "@/types/user";
-
-const schema = z.object({
-  email: z.string().email("Invalid email"),
-  account_token: z.string().min(1, "Account token is required"),
-});
-
-type FormData = z.infer<typeof schema>;
-
-const ResendOtp = () => {
-  const location = useLocation();
-  const state = (location.state || {}) as {
-    email?: string;
-    account_token?: string;
-    login_token?: string;
-  };
-
-  const [serverError, setServerError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<FormData>({
-    resolver: zodResolver(schema),
-    defaultValues: {
-      email: state.email || "",
-      account_token: state.account_token || state.login_token || "",
-    },
-  });
-
-  const onSubmit = async (data: FormData) => {
-    setServerError(null);
-    setSuccessMessage(null);
-
-    try {
-      const res = await api.post<ResendVerificationResponse>(
-        "/resend-verification",
-        data
-      );
-      setSuccessMessage(res.data.message || "Verification OTP sent");
-    } catch (err: any) {
-      setServerError(
-        err.response?.data?.detail || "Failed to resend verification OTP"
-      );
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8">
-        <h1 className="text-2xl font-bold text-center mb-2">
-          Resend Verification
-        </h1>
-        <p className="text-center text-gray-600 mb-6 text-sm">
-          Your account is not verified. Request a new verification code.
-        </p>
-
-        {successMessage && (
-          <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-center">
-            {successMessage}
-          </div>
-        )}
-
-        {serverError && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-center">
-            {serverError}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-          <div>
-            <label className="block text-sm font-medium mb-1">Email</label>
-            <input
-              type="email"
-              {...register("email")}
-              className={`w-full px-4 py-3 border rounded-lg ${
-                errors.email ? "border-red-500" : "border-gray-300"
-              }`}
-            />
-            {errors.email && (
-              <p className="text-sm text-red-600 mt-1">{errors.email.message}</p>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              Account Token
-            </label>
-            <input
-              type="text"
-              {...register("account_token")}
-              className={`w-full px-4 py-3 border rounded-lg ${
-                errors.account_token ? "border-red-500" : "border-gray-300"
-              }`}
-              placeholder="From login response"
-            />
-            {errors.account_token && (
-              <p className="text-sm text-red-600 mt-1">
-                {errors.account_token.message}
-              </p>
-            )}
-            <p className="text-xs text-gray-500 mt-1">
-              Required by backend to prevent abuse. Use the token from login if
-              available.
-            </p>
-          </div>
-
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold disabled:opacity-50"
-          >
-            {isSubmitting ? "Sending..." : "Resend Verification OTP"}
-          </button>
-        </form>
-
-        <p className="text-center mt-6 text-sm">
-          <Link to="/login" className="text-blue-600 font-medium">
-            Back to Login
-          </Link>
-        </p>
-      </div>
-    </div>
-  );
-};
-
-export default ResendOtp;
+  // ... rest of 
 
 
 { path: "profile", element: <Profile /> },
