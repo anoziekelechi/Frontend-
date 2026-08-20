@@ -3,6 +3,11 @@
 
 
 
+ return {
+        "message": f"Country '{country.name}' created successfully",
+        "country": CountryRead.model_validate(country),
+    }
+
 
 // src/pages/countries/CreateCountry.tsx
 import { useState } from "react";
