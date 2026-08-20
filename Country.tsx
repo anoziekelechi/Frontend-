@@ -1,6 +1,5 @@
 
-
-
+{"total":2,"countries":[{"id":1,"name":"Ghana","currency_code":"GHC","whatsapp":23456789,"email_support":null,"created_at":"2026-08-09T07:44:54.619142Z","updated_at":"2026-08-09T07:44:54.619240Z"},{"id":2,"name":"Liberia","currency_code":"LRD","whatsapp":null,"email_support":null,"created_at":"2026-08-20T01:23:23.620445Z","updated_at":"2026-08-20T01:23:23.620537Z"}]}
 
 
 
