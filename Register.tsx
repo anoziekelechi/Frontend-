@@ -37,12 +37,17 @@ export interface VerifyOtpRequest {
 }
 
 
+
 // src/pages/users/Registration.tsx
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useNavigate, Link } from "react-router-dom";
+import Form from "react-bootstrap/Form";
+import Button from "react-bootstrap/Button";
+import Container from "react-bootstrap/Container";
+import Alert from "react-bootstrap/Alert";
 import api from "@/api/client";
 import { useAuth } from "@/context/AuthContext";
 import type { CreateUser, RegisterResponse } from "@/types/user";
@@ -56,7 +61,6 @@ const schema = z.object({
   country_id: z.coerce.number().min(1, "Country is required"),
 });
 
-// Form data matches CreateUser
 type FormData = CreateUser;
 
 const Registration = () => {
@@ -78,15 +82,15 @@ const Registration = () => {
   useEffect(() => {
     api
       .get<CountryListRead>("/countries")
-      .then((res) => setCountries(res.data.items || []))
+      .then((res) => setCountries(res.data.countries || []))
       .catch(() => setCountries([]));
   }, []);
 
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-gray-600 animate-pulse">Loading...</p>
-      </div>
+      <Container className="py-5 text-center">
+        <p className="text-muted">Loading...</p>
+      </Container>
     );
   }
 
@@ -101,9 +105,7 @@ const Registration = () => {
 
     try {
       const res = await api.post<RegisterResponse>("/register", data);
-
-      // Show API message
-      setSuccessMessage(res.data.message); // "OTP sent to your email"
+      setSuccessMessage(res.data.message);
 
       setTimeout(() => {
         navigate("/register/verify", {
@@ -119,9 +121,7 @@ const Registration = () => {
 
       if (status === 403) {
         setServerError(detail || "Logged in user cannot create account");
-        setTimeout(() => {
-          navigate("/profile", { replace: true });
-        }, 2000);
+        setTimeout(() => navigate("/profile", { replace: true }), 2000);
         return;
       }
 
@@ -139,88 +139,77 @@ const Registration = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8">
-        <h1 className="text-2xl font-bold text-center mb-6">Create Account</h1>
+    <Container className="py-5" style={{ maxWidth: 480 }}>
+      <div className="bg-white p-4 rounded shadow-sm">
+        <h1 className="h3 text-center mb-4">Create Account</h1>
 
         {successMessage && (
-          <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-center">
+          <Alert variant="success" className="text-center">
             {successMessage}
-            <p className="text-sm mt-1">Redirecting to verification...</p>
-          </div>
+            <div className="small mt-1">Redirecting to verification...</div>
+          </Alert>
         )}
 
         {serverError && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-center">
+          <Alert variant="danger" className="text-center">
             {serverError}
-            {serverError.toLowerCase().includes("logged in") && (
-              <p className="text-sm mt-1">Redirecting to profile...</p>
-            )}
-          </div>
+          </Alert>
         )}
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">Surname</label>
-            <input
+        <Form onSubmit={handleSubmit(onSubmit)}>
+          <Form.Group className="mb-3" controlId="surname">
+            <Form.Label>Surname</Form.Label>
+            <Form.Control
+              type="text"
+              isInvalid={!!errors.surname}
               {...register("surname")}
-              className={`w-full px-4 py-3 border rounded-lg ${
-                errors.surname ? "border-red-500" : "border-gray-300"
-              }`}
             />
-            {errors.surname && (
-              <p className="text-sm text-red-600 mt-1">{errors.surname.message}</p>
-            )}
-          </div>
+            <Form.Control.Feedback type="invalid">
+              {errors.surname?.message}
+            </Form.Control.Feedback>
+          </Form.Group>
 
-          <div>
-            <label className="block text-sm font-medium mb-1">Other Names</label>
-            <input
+          <Form.Group className="mb-3" controlId="othernames">
+            <Form.Label>Other Names</Form.Label>
+            <Form.Control
+              type="text"
+              isInvalid={!!errors.othernames}
               {...register("othernames")}
-              className={`w-full px-4 py-3 border rounded-lg ${
-                errors.othernames ? "border-red-500" : "border-gray-300"
-              }`}
             />
-            {errors.othernames && (
-              <p className="text-sm text-red-600 mt-1">{errors.othernames.message}</p>
-            )}
-          </div>
+            <Form.Control.Feedback type="invalid">
+              {errors.othernames?.message}
+            </Form.Control.Feedback>
+          </Form.Group>
 
-          <div>
-            <label className="block text-sm font-medium mb-1">Email</label>
-            <input
+          <Form.Group className="mb-3" controlId="email">
+            <Form.Label>Email</Form.Label>
+            <Form.Control
               type="email"
+              isInvalid={!!errors.email}
               {...register("email")}
-              className={`w-full px-4 py-3 border rounded-lg ${
-                errors.email ? "border-red-500" : "border-gray-300"
-              }`}
             />
-            {errors.email && (
-              <p className="text-sm text-red-600 mt-1">{errors.email.message}</p>
-            )}
-          </div>
+            <Form.Control.Feedback type="invalid">
+              {errors.email?.message}
+            </Form.Control.Feedback>
+          </Form.Group>
 
-          <div>
-            <label className="block text-sm font-medium mb-1">Password</label>
-            <input
+          <Form.Group className="mb-3" controlId="password">
+            <Form.Label>Password</Form.Label>
+            <Form.Control
               type="password"
+              isInvalid={!!errors.password}
               {...register("password")}
-              className={`w-full px-4 py-3 border rounded-lg ${
-                errors.password ? "border-red-500" : "border-gray-300"
-              }`}
             />
-            {errors.password && (
-              <p className="text-sm text-red-600 mt-1">{errors.password.message}</p>
-            )}
-          </div>
+            <Form.Control.Feedback type="invalid">
+              {errors.password?.message}
+            </Form.Control.Feedback>
+          </Form.Group>
 
-          <div>
-            <label className="block text-sm font-medium mb-1">Country</label>
-            <select
+          <Form.Group className="mb-4" controlId="country_id">
+            <Form.Label>Country</Form.Label>
+            <Form.Select
+              isInvalid={!!errors.country_id}
               {...register("country_id")}
-              className={`w-full px-4 py-3 border rounded-lg ${
-                errors.country_id ? "border-red-500" : "border-gray-300"
-              }`}
               defaultValue=""
             >
               <option value="" disabled>
@@ -231,29 +220,28 @@ const Registration = () => {
                   {c.name}
                 </option>
               ))}
-            </select>
-            {errors.country_id && (
-              <p className="text-sm text-red-600 mt-1">{errors.country_id.message}</p>
-            )}
-          </div>
+            </Form.Select>
+            <Form.Control.Feedback type="invalid">
+              {errors.country_id?.message}
+            </Form.Control.Feedback>
+          </Form.Group>
 
-          <button
+          <Button
             type="submit"
+            variant="primary"
+            className="w-100"
             disabled={isSubmitting || !!successMessage}
-            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold disabled:opacity-50"
           >
             {isSubmitting ? "Creating..." : "Register"}
-          </button>
-        </form>
+          </Button>
+        </Form>
 
-        <p className="text-center mt-6 text-sm text-gray-600">
+        <p className="text-center mt-4 mb-0 small">
           Already have an account?{" "}
-          <Link to="/login" className="text-blue-600 font-medium">
-            Login
-          </Link>
+          <Link to="/login">Login</Link>
         </p>
       </div>
-    </div>
+    </Container>
   );
 };
 
@@ -267,6 +255,10 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import Form from "react-bootstrap/Form";
+import Button from "react-bootstrap/Button";
+import Container from "react-bootstrap/Container";
+import Alert from "react-bootstrap/Alert";
 import api from "@/api/client";
 import type { User } from "@/types/user";
 
@@ -318,19 +310,14 @@ const VerifyRegistration = () => {
       setSuccessMessage(
         "Your account has been verified successfully. You can now log in."
       );
-
-      setTimeout(() => {
-        navigate("/login", { replace: true });
-      }, 2000);
+      setTimeout(() => navigate("/login", { replace: true }), 2000);
     } catch (err: any) {
       const status = err.response?.status;
       const detail = err.response?.data?.detail || "Invalid or expired OTP";
 
       if (status === 409) {
         setServerError(detail);
-        setTimeout(() => {
-          navigate("/profile", { replace: true });
-        }, 2000);
+        setTimeout(() => navigate("/profile", { replace: true }), 2000);
         return;
       }
 
@@ -339,61 +326,59 @@ const VerifyRegistration = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8 text-center">
-        <h1 className="text-2xl font-bold mb-2">Verify Your Email</h1>
-        <p className="text-gray-600 mb-6">
+    <Container className="py-5" style={{ maxWidth: 480 }}>
+      <div className="bg-white p-4 rounded shadow-sm text-center">
+        <h1 className="h3 mb-2">Verify Your Email</h1>
+        <p className="text-muted mb-4">
           We sent a 6-digit code to
           <br />
           <strong>{email}</strong>
         </p>
 
         {successMessage && (
-          <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg">
+          <Alert variant="success">
             {successMessage}
-            <p className="text-sm mt-1">Redirecting to login...</p>
-          </div>
+            <div className="small mt-1">Redirecting to login...</div>
+          </Alert>
         )}
 
-        {serverError && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg">
-            {serverError}
-            {serverError.toLowerCase().includes("already verified") && (
-              <p className="text-sm mt-1">Redirecting to profile...</p>
-            )}
-          </div>
-        )}
+        {serverError && <Alert variant="danger">{serverError}</Alert>}
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-          <div>
-            <input
-              {...register("otp_code")}
+        <Form onSubmit={handleSubmit(onSubmit)}>
+          <Form.Group className="mb-4" controlId="otp_code">
+            <Form.Control
+              type="text"
               maxLength={6}
               autoFocus
               placeholder="000000"
-              className={`w-full px-4 py-4 text-center text-3xl tracking-widest font-mono border rounded-lg ${
-                errors.otp_code ? "border-red-500" : "border-gray-300"
-              }`}
+              className="text-center fs-3 letter-spacing-2"
+              isInvalid={!!errors.otp_code}
+              {...register("otp_code")}
             />
-            {errors.otp_code && (
-              <p className="text-sm text-red-600 mt-2">{errors.otp_code.message}</p>
-            )}
-          </div>
+            <Form.Control.Feedback type="invalid">
+              {errors.otp_code?.message}
+            </Form.Control.Feedback>
+          </Form.Group>
 
-          <button
+          <Button
             type="submit"
+            variant="primary"
+            className="w-100"
             disabled={isSubmitting || !!successMessage}
-            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold disabled:opacity-50"
           >
             {isSubmitting ? "Verifying..." : "Verify Account"}
-          </button>
-        </form>
+          </Button>
+        </Form>
       </div>
-    </div>
+    </Container>
   );
 };
 
 export default VerifyRegistration;
+
+
+
+
 
 
 // src/pages/users/Login.tsx
@@ -402,6 +387,10 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useNavigate, Link } from "react-router-dom";
 import { useState } from "react";
+import Form from "react-bootstrap/Form";
+import Button from "react-bootstrap/Button";
+import Container from "react-bootstrap/Container";
+import Alert from "react-bootstrap/Alert";
 import api from "@/api/client";
 import { useAuth } from "@/context/AuthContext";
 import type { LoginRequest, LoginResponse } from "@/types/user";
@@ -411,7 +400,6 @@ const schema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
-// Form data matches LoginRequest
 type FormData = LoginRequest;
 
 const Login = () => {
@@ -430,9 +418,9 @@ const Login = () => {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-gray-600 animate-pulse">Loading...</p>
-      </div>
+      <Container className="py-5 text-center">
+        <p className="text-muted">Loading...</p>
+      </Container>
     );
   }
 
@@ -447,7 +435,6 @@ const Login = () => {
 
     try {
       const res = await api.post<LoginResponse>("/login", data);
-
       setSuccessMessage(res.data.message);
 
       setTimeout(() => {
@@ -464,9 +451,7 @@ const Login = () => {
 
       if (status === 403) {
         setServerError(detail || "Already logged in");
-        setTimeout(() => {
-          navigate("/profile", { replace: true });
-        }, 2000);
+        setTimeout(() => navigate("/profile", { replace: true }), 2000);
         return;
       }
 
@@ -485,78 +470,67 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8">
-        <h1 className="text-2xl font-bold text-center mb-6">Welcome Back</h1>
+    <Container className="py-5" style={{ maxWidth: 480 }}>
+      <div className="bg-white p-4 rounded shadow-sm">
+        <h1 className="h3 text-center mb-4">Welcome Back</h1>
 
         {successMessage && (
-          <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-center">
+          <Alert variant="success" className="text-center">
             {successMessage}
-            <p className="text-sm mt-1">Redirecting to OTP page...</p>
-          </div>
+            <div className="small mt-1">Redirecting to OTP page...</div>
+          </Alert>
         )}
 
         {serverError && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-center">
+          <Alert variant="danger" className="text-center">
             {serverError}
-            {serverError.toLowerCase().includes("already logged") && (
-              <p className="text-sm mt-1">Redirecting to profile...</p>
-            )}
-          </div>
+          </Alert>
         )}
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-          <div>
-            <label className="block text-sm font-medium mb-1">Email</label>
-            <input
+        <Form onSubmit={handleSubmit(onSubmit)}>
+          <Form.Group className="mb-3" controlId="email">
+            <Form.Label>Email</Form.Label>
+            <Form.Control
               type="email"
+              isInvalid={!!errors.email}
               {...register("email")}
-              className={`w-full px-4 py-3 border rounded-lg ${
-                errors.email ? "border-red-500" : "border-gray-300"
-              }`}
             />
-            {errors.email && (
-              <p className="text-sm text-red-600 mt-1">{errors.email.message}</p>
-            )}
-          </div>
+            <Form.Control.Feedback type="invalid">
+              {errors.email?.message}
+            </Form.Control.Feedback>
+          </Form.Group>
 
-          <div>
-            <label className="block text-sm font-medium mb-1">Password</label>
-            <input
+          <Form.Group className="mb-4" controlId="password">
+            <Form.Label>Password</Form.Label>
+            <Form.Control
               type="password"
+              isInvalid={!!errors.password}
               {...register("password")}
-              className={`w-full px-4 py-3 border rounded-lg ${
-                errors.password ? "border-red-500" : "border-gray-300"
-              }`}
             />
-            {errors.password && (
-              <p className="text-sm text-red-600 mt-1">{errors.password.message}</p>
-            )}
-          </div>
+            <Form.Control.Feedback type="invalid">
+              {errors.password?.message}
+            </Form.Control.Feedback>
+          </Form.Group>
 
-          <button
+          <Button
             type="submit"
+            variant="primary"
+            className="w-100"
             disabled={isSubmitting || !!successMessage}
-            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold disabled:opacity-50"
           >
             {isSubmitting ? "Checking..." : "Continue"}
-          </button>
-        </form>
+          </Button>
+        </Form>
 
-        <p className="text-center mt-6 text-sm text-gray-600">
-          No account?{" "}
-          <Link to="/register" className="text-blue-600 font-medium">
-            Register
-          </Link>
+        <p className="text-center mt-4 mb-0 small">
+          No account? <Link to="/register">Register</Link>
         </p>
       </div>
-    </div>
+    </Container>
   );
 };
 
 export default Login;
-
-
 
 
 
@@ -568,6 +542,10 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import Form from "react-bootstrap/Form";
+import Button from "react-bootstrap/Button";
+import Container from "react-bootstrap/Container";
+import Alert from "react-bootstrap/Alert";
 import api from "@/api/client";
 import { useAuth } from "@/context/AuthContext";
 import type { VerifyLoginResponse } from "@/types/user";
@@ -604,13 +582,12 @@ const VerifyLogin = () => {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-gray-600 animate-pulse">Loading...</p>
-      </div>
+      <Container className="py-5 text-center">
+        <p className="text-muted">Loading...</p>
+      </Container>
     );
   }
 
-  // Already logged in
   if (user) {
     navigate("/profile", { replace: true });
     return null;
@@ -634,7 +611,6 @@ const VerifyLogin = () => {
 
       const { status, message } = res.data;
 
-      // Disabled account
       if (status === "disabled") {
         setServerError(message);
         setTimeout(() => {
@@ -646,58 +622,35 @@ const VerifyLogin = () => {
         return;
       }
 
-      // Unverified account
       if (status === "unverified") {
         setServerError(message);
         setTimeout(() => {
           navigate("/resend-verification", {
             replace: true,
-            state: {
-              email: res.data.email || email,
-              login_token,
-            },
+            state: { email: res.data.email || email, login_token },
           });
         }, 2000);
         return;
       }
 
-      // Success
       if (status === "success") {
-        setSuccessMessage(message); // "Login successful"
-        login(); // refresh auth context (cookies already set)
-
-        setTimeout(() => {
-          navigate("/profile", { replace: true });
-        }, 1500);
+        setSuccessMessage(message);
+        login();
+        setTimeout(() => navigate("/profile", { replace: true }), 1500);
       }
     } catch (err: any) {
       const status = err.response?.status;
       const detail = err.response?.data?.detail;
 
-      // Already logged in
       if (status === 403) {
         setServerError(detail || "Already logged in. Please logout first.");
-        setTimeout(() => {
-          navigate("/profile", { replace: true });
-        }, 2000);
+        setTimeout(() => navigate("/profile", { replace: true }), 2000);
         return;
       }
 
-      // Invalid credentials / invalid OTP
-      if (status === 401) {
+      if (status === 401 || status === 400) {
         setServerError(detail || "Invalid credentials");
-        setTimeout(() => {
-          navigate("/login", { replace: true });
-        }, 2000);
-        return;
-      }
-
-      // Session expired
-      if (status === 400) {
-        setServerError(detail || "Session expired or invalid");
-        setTimeout(() => {
-          navigate("/login", { replace: true });
-        }, 2000);
+        setTimeout(() => navigate("/login", { replace: true }), 2000);
         return;
       }
 
@@ -706,56 +659,59 @@ const VerifyLogin = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8 text-center">
-        <h1 className="text-2xl font-bold mb-2">Enter Login Code</h1>
-        <p className="text-gray-600 mb-6">
+    <Container className="py-5" style={{ maxWidth: 480 }}>
+      <div className="bg-white p-4 rounded shadow-sm text-center">
+        <h1 className="h3 mb-2">Enter Login Code</h1>
+        <p className="text-muted mb-4">
           We sent a 6-digit code to
           <br />
           <strong>{email}</strong>
         </p>
 
         {successMessage && (
-          <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg">
+          <Alert variant="success">
             {successMessage}
-            <p className="text-sm mt-1">Redirecting to profile...</p>
-          </div>
+            <div className="small mt-1">Redirecting to profile...</div>
+          </Alert>
         )}
 
         {serverError && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg">
+          <Alert variant="danger">
             {serverError}
-            <p className="text-sm mt-1">Redirecting...</p>
-          </div>
+            <div className="small mt-1">Redirecting...</div>
+          </Alert>
         )}
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-          <div>
-            <input
-              {...register("otp_code")}
+        <Form onSubmit={handleSubmit(onSubmit)}>
+          <Form.Group className="mb-4" controlId="otp_code">
+            <Form.Control
+              type="text"
               maxLength={6}
               autoFocus
               placeholder="000000"
-              className={`w-full px-4 py-4 text-center text-3xl tracking-widest font-mono border rounded-lg ${
-                errors.otp_code ? "border-red-500" : "border-gray-300"
-              }`}
+              className="text-center fs-3"
+              isInvalid={!!errors.otp_code}
+              {...register("otp_code")}
             />
-            {errors.otp_code && (
-              <p className="text-sm text-red-600 mt-2">{errors.otp_code.message}</p>
-            )}
-          </div>
+            <Form.Control.Feedback type="invalid">
+              {errors.otp_code?.message}
+            </Form.Control.Feedback>
+          </Form.Group>
 
-          <button
+          <Button
             type="submit"
+            variant="primary"
+            className="w-100"
             disabled={isSubmitting || !!successMessage}
-            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold disabled:opacity-50"
           >
             {isSubmitting ? "Verifying..." : "Complete Login"}
-          </button>
-        </form>
+          </Button>
+        </Form>
       </div>
-    </div>
+    </Container>
   );
 };
 
 export default VerifyLogin;
+
+          
