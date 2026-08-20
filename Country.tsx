@@ -1,3 +1,113 @@
+ervices running
+backend-1   | INFO:     Application startup complete.
+frontend-1  | 12:45:39 AM [vite] Internal server error: Failed to resolve import "react-hook-form" from "src/pages/admin/SetUpHome.tsx". Does the file exist?
+frontend-1  |   Plugin: vite:import-analysis
+frontend-1  |   File: /app/src/pages/admin/SetUpHome.tsx:3:24
+frontend-1  |   1  |  // src/pages/admin/SetupHome.tsx
+frontend-1  |   2  |  import { useState } from "react";
+frontend-1  |   3  |  import { useForm } from "react-hook-form";
+frontend-1  |      |                           ^
+frontend-1  |   4  |  import { zodResolver } from "@hookform/resolvers/zod";
+frontend-1  |   5  |  import { z } from "zod";
+frontend-1  |       at TransformPluginContext._formatLog (file:///app/node_modules/vite/dist/node/chunks/node.js:30679:43)
+frontend-1  |       at TransformPluginContext.error (file:///app/node_modules/vite/dist/node/chunks/node.js:30676:14)
+frontend-1  |       at normalizeUrl (file:///app/node_modules/vite/dist/node/chunks/node.js:28717:18)
+frontend-1  |       at async file:///app/node_modules/vite/dist/node/chunks/node.js:28780:32
+frontend-1  |       at async Promise.all (index 1)
+frontend-1  |       at async TransformPluginContext.transform (file:///app/node_modules/vite/dist/node/chunks/node.js:28748:4)
+frontend-1  |       at async EnvironmentPluginContainer.transform (file:///app/node_modules/vite/dist/node/chunks/node.js:30468:14)
+frontend-1  |       at async loadAndTransform (file:///app/node_modules/vite/dist/node/chunks/node.js:21586:26)
+frontend-1  | 12:45:39 AM [vite] (client) Pre-transform error: Failed to resolve import "react-hook-form" from "src/pages/admin/SetUpHome.tsx". Does the file exist?
+frontend-1  |   Plugin: vite:import-analysis
+frontend-1  |   File: /app/src/pages/admin/SetUpHome.tsx:3:24
+frontend-1  |   1  |  // src/pages/admin/SetupHome.tsx
+frontend-1  |   2  |  import { useState } from "react";
+frontend-1  |   3  |  import { useForm } from "react-hook-form";
+frontend-1  |      |                           ^
+frontend-1  |   4  |  import { zodResolver } from "@hookform/resolvers/zod";
+frontend-1  |   5  |  import { z } from "zod";
+frontend-1  | 12:45:39 AM [vite] (client) Pre-transform error: Failed to resolve import "react-hook-form" from "src/pages/admin/SetUpHome.tsx". Does the file exist?
+frontend-1  |   Plugin: vite:import-analysis
+frontend-1  |   File: /app/src/pages/admin/SetUpHome.tsx:3:24
+frontend-1  |   1  |  // src/pages/admin/SetupHome.tsx
+frontend-1  |   2  |  import { useState } from "react";
+frontend-1  |   3  |  import { useForm } from "react-hook-form";
+frontend-1  |      |                           ^
+frontend-1  |   4  |  import { zodResolver } from "@hookform/resolvers/zod";
+frontend-1  |   5  |  import { z } from "zod";
+frontend-1  | 12:45:39 AM [vite] Internal server error: Failed to resolve import "react-hook-form" from "src/pages/users/Login.tsx". Does the file exist?
+frontend-1  |   Plugin: vite:import-analysis
+frontend-1  |   File: /app/src/pages/users/Login.tsx:2:24
+frontend-1  |   1  |  // src/pages/users/Login.tsx
+frontend-1  |   2  |  import { useForm } from "react-hook-form";
+frontend-1  |      |                           ^
+frontend-1  |   3  |  import { zodResolver } from "@hookform/resolvers/zod";
+frontend-1  |   4  |  import { z } from "zod";
+frontend-1  |       at TransformPluginContext._formatLog (file:///app/node_modules/vite/dist/node/chunks/node.js:30679:43)
+frontend-1  |       at TransformPluginContext.error (file:///app/node_modules/vite/dist/node/chunks/node.js:30676:14)
+frontend-1  |       at normalizeUrl (file:///app/node_modules/vite/dist/node/chunks/node.js:28717:18)
+frontend-1  |       at async file:///app/node_modules/vite/dist/node/chunks/node.js:28780:32
+frontend-1  |       at async Promise.all (index 0)
+frontend-1  |       at async TransformPluginContext.transform (file:///app/node_modules/vite/dist/node/chunks/node.js:28748:4)
+frontend-1  |       at async EnvironmentPluginContainer.transform (file:///app/node_modules/vite/dist/node/chunks/node.js:30468:14)
+frontend-1  |       at async loadAndTransform (file:///app/node_modules/vite/dist/node/chunks/node.js:21586:26)
+frontend-1  | 12:45:39 AM [vite] (client) Pre-transform error: Failed to resolve import "react-hook-form" from "src/pages/users/Login.tsx". Does the file exist?
+frontend-1  |   Plugin: vite:import-analysis
+frontend-1  |   File: /app/src/pages/users/Login.tsx:2:24
+frontend-1  |   1  |  // src/pages/users/Login.tsx
+frontend-1  |   2  |  import { useForm } from "react-hook-form";
+frontend-1  |      |                           ^
+frontend-1  |   3  |  import { zodResolver } from "@hookform/resolvers/zod";
+frontend-1  |   4  |  import { z } from "zod";
+frontend-1  | 12:45:39 AM [vite] (client) Pre-transform error: Failed to resolve import "react-hook-form" from "src/pages/users/Login.tsx". Does the file exist?
+frontend-1  |   Plugin: vite:import-analysis
+frontend-1  |   File: /app/src/pages/users/Login.tsx:2:24
+frontend-1  |   1  |  // src/pages/users/Login.tsx
+frontend-1  |   2  |  import { useForm } from "react-hook-form";
+frontend-1  |      |                           ^
+frontend-1  |   3  |  import { zodResolver } from "@hookform/resolvers/zod";
+frontend-1  |   4  |  import { z } from "zod";
+frontend-1  | 12:45:39 AM [vite] Internal server error: Failed to resolve import "react-hook-form" from "src/pages/countries/CreateCountry.tsx". Does the file exist?
+frontend-1  |   Plugin: vite:import-analysis
+frontend-1  |   File: /app/src/pages/countries/CreateCountry.tsx:3:24
+frontend-1  |   1  |  // src/pages/countries/CreateCountry.tsx
+frontend-1  |   2  |  import { useState } from "react";
+frontend-1  |   3  |  import { useForm } from "react-hook-form";
+frontend-1  |      |                           ^
+frontend-1  |   4  |  import { zodResolver } from "@hookform/resolvers/zod";
+frontend-1  |   5  |  import { z } from "zod";
+frontend-1  |       at TransformPluginContext._formatLog (file:///app/node_modules/vite/dist/node/chunks/node.js:30679:43)
+frontend-1  |       at TransformPluginContext.error (file:///app/node_modules/vite/dist/node/chunks/node.js:30676:14)
+frontend-1  |       at normalizeUrl (file:///app/node_modules/vite/dist/node/chunks/node.js:28717:18)
+frontend-1  |       at async file:///app/node_modules/vite/dist/node/chunks/node.js:28780:32
+frontend-1  |       at async Promise.all (index 1)
+frontend-1  |       at async TransformPluginContext.transform (file:///app/node_modules/vite/dist/node/chunks/node.js:28748:4)
+frontend-1  |       at async EnvironmentPluginContainer.transform (file:///app/node_modules/vite/dist/node/chunks/node.js:30468:14)
+frontend-1  |       at async loadAndTransform (file:///app/node_modules/vite/dist/node/chunks/node.js:21586:26)
+frontend-1  | 12:45:39 AM [vite] (client) Pre-transform error: Failed to resolve import "react-hook-form" from "src/pages/countries/CreateCountry.tsx". Does the file exist?
+frontend-1  |   Plugin: vite:import-analysis
+frontend-1  |   File: /app/src/pages/countries/CreateCountry.tsx:3:24
+frontend-1  |   1  |  // src/pages/countries/CreateCountry.tsx
+frontend-1  |   2  |  import { useState } from "react";
+frontend-1  |   3  |  import { useForm } from "react-hook-form";
+frontend-1  |      |                           ^
+frontend-1  |   4  |  import { zodResolver } from "@hookform/resolvers/zod";
+frontend-1  |   5  |  import { z } from "zod";
+frontend-1  | 12:45:39 AM [vite] (client) Pre-transform error: Failed to resolve import "react-hook-form" from "src/pages/countries/CreateCountry.tsx". Does the file exist?
+frontend-1  |   Plugin: vite:import-analysis
+frontend-1  |   File: /app/src/pages/countries/CreateCountry.tsx:3:24
+frontend-1  |   1  |  // src/pages/countries/CreateCountry.tsx
+frontend-1  |   2  |  import { useState } from "react";
+frontend-1  |   3  |  import { useForm } from "react-hook-form";
+frontend-1  |      |                           ^
+frontend-1  |   4  |  import { zodResolver } from "@hookform/resolvers/zod";
+frontend-1  |   5  |  import { z } from "zod";
+
+
+
+
+
+
 // src/pages/countries/CreateCountry.tsx
 import { useState } from "react";
 import { useForm } from "react-hook-form";
