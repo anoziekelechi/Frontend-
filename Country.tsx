@@ -1,3 +1,79 @@
+// src/pages/countries/CountriesList.tsx
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import Container from "react-bootstrap/Container";
+import ListGroup from "react-bootstrap/ListGroup";
+import Spinner from "react-bootstrap/Spinner";
+import Alert from "react-bootstrap/Alert";
+import api from "@/api/client";
+import type { CountryListRead, CountryRead } from "@/types/country";
+
+const CountriesList = () => {
+  const [countries, setCountries] = useState<CountryRead[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .get<CountryListRead>("/countries")
+      .then((res) => setCountries(res.data.countries ?? []))
+      .catch((err) =>
+        setError(err.response?.data?.detail || "Failed to load countries")
+      )
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <Container className="py-5 text-center">
+        <Spinner animation="border" role="status" />
+        <p className="mt-3 text-muted">Loading countries...</p>
+      </Container>
+    );
+  }
+
+  if (error) {
+    return (
+      <Container className="py-5">
+        <Alert variant="danger" className="text-center">
+          {error}
+        </Alert>
+      </Container>
+    );
+  }
+
+  return (
+    <Container className="py-4" style={{ maxWidth: 720 }}>
+      <div className="d-flex justify-content-between align-items-center mb-4">
+        <h1 className="h3 mb-0">Countries</h1>
+        <Link to="/add_country" className="btn btn-primary">
+          + Add Country
+        </Link>
+      </div>
+
+      {countries.length === 0 ? (
+        <p className="text-center text-muted py-5">No available country now</p>
+      ) : (
+        <ListGroup>
+          {countries.map((country) => (
+            <ListGroup.Item
+              key={country.id}
+              action
+              as={Link}
+              to={`/countries/${country.id}`}
+            >
+              {country.name}
+            </ListGroup.Item>
+          ))}
+        </ListGroup>
+      )}
+    </Container>
+  );
+};
+
+export default CountriesList;
+
+
 // src/pages/countries/CreateCountry.tsx
 import { useState } from "react";
 import { useForm } from "react-hook-form";
