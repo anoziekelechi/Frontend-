@@ -1,3 +1,34 @@
+# WhatsApp (now unique)
+if data.whatsapp is not None and data.whatsapp != country.whatsapp:
+    existing_whatsapp = (
+        await db.execute(
+            select(Country).where(Country.whatsapp == data.whatsapp)
+        )
+    ).scalars().first()
+    if existing_whatsapp and existing_whatsapp.id != country_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"WhatsApp number '{data.whatsapp}' is already assigned to '{existing_whatsapp.name}'",
+        )
+    country.whatsapp = data.whatsapp
+    updated_fields.append("whatsapp")
+
+# Support email (now unique)
+if data.email_support is not None and data.email_support != country.email_support:
+    existing_email = (
+        await db.execute(
+            select(Country).where(Country.email_support == data.email_support)
+        )
+    ).scalars().first()
+    if existing_email and existing_email.id != country_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Support email '{data.email_support}' is already assigned to '{existing_email.name}'",
+        )
+    country.email_support = data.email_support
+    updated_fields.append("email_support")
+
+
 export interface LoginRequest {
   email: string;
   password: string;
@@ -713,5 +744,267 @@ const VerifyLogin = () => {
 };
 
 export default VerifyLogin;
+
+
+
+
+// src/pages/users/ContactAdmin.tsx
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { Link } from "react-router-dom";
+import Form from "react-bootstrap/Form";
+import Button from "react-bootstrap/Button";
+import Container from "react-bootstrap/Container";
+import Alert from "react-bootstrap/Alert";
+import api from "@/api/client";
+import type { ContactAdminMessage, ContactAdminResponse } from "@/types/user";
+
+const schema = z.object({
+  email: z.string().email("Invalid email"),
+  message: z
+    .string()
+    .min(10, "Message must be at least 10 characters")
+    .max(1000, "Message is too long"),
+});
+
+type FormData = ContactAdminMessage;
+
+const ContactAdmin = () => {
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm<FormData>({
+    resolver: zodResolver(schema),
+  });
+
+  const onSubmit = async (data: ContactAdminMessage) => {
+    setServerError(null);
+    setSuccessMessage(null);
+
+    try {
+      const res = await api.post<ContactAdminResponse>("/contact-admin", data);
+      setSuccessMessage(res.data.message || "Message sent to admin");
+      reset();
+    } catch (err: any) {
+      setServerError(
+        err.response?.data?.detail || "Failed to send message"
+      );
+    }
+  };
+
+  return (
+    <Container className="py-5" style={{ maxWidth: 480 }}>
+      <div className="bg-white p-4 rounded shadow-sm">
+        <h1 className="h3 text-center mb-2">Contact Admin</h1>
+        <p className="text-center text-muted small mb-4">
+          Your account appears to be suspended. Send a message to request
+          reactivation.
+        </p>
+
+        {successMessage && (
+          <Alert variant="success" className="text-center">
+            {successMessage}
+          </Alert>
+        )}
+
+        {serverError && (
+          <Alert variant="danger" className="text-center">
+            {serverError}
+          </Alert>
+        )}
+
+        <Form onSubmit={handleSubmit(onSubmit)}>
+          <Form.Group className="mb-3" controlId="email">
+            <Form.Label>Email</Form.Label>
+            <Form.Control
+              type="email"
+              placeholder="your@email.com"
+              isInvalid={!!errors.email}
+              {...register("email")}
+            />
+            <Form.Control.Feedback type="invalid">
+              {errors.email?.message}
+            </Form.Control.Feedback>
+          </Form.Group>
+
+          <Form.Group className="mb-4" controlId="message">
+            <Form.Label>Message</Form.Label>
+            <Form.Control
+              as="textarea"
+              rows={5}
+              placeholder="Explain why your account should be reactivated..."
+              isInvalid={!!errors.message}
+              {...register("message")}
+            />
+            <Form.Control.Feedback type="invalid">
+              {errors.message?.message}
+            </Form.Control.Feedback>
+          </Form.Group>
+
+          <Button
+            type="submit"
+            variant="primary"
+            className="w-100"
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? "Sending..." : "Send Message"}
+          </Button>
+        </Form>
+
+        <p className="text-center mt-4 mb-0 small">
+          <Link to="/login">Back to Login</Link>
+        </p>
+      </div>
+    </Container>
+  );
+};
+
+export default ContactAdmin;
+
+
+
+
+
+// src/pages/users/ResendOtp.tsx
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { Link, useLocation } from "react-router-dom";
+import Form from "react-bootstrap/Form";
+import Button from "react-bootstrap/Button";
+import Container from "react-bootstrap/Container";
+import Alert from "react-bootstrap/Alert";
+import api from "@/api/client";
+import type {
+  ResendVerificationRequest,
+  ResendVerificationResponse,
+} from "@/types/user";
+
+const schema = z.object({
+  email: z.string().email("Invalid email"),
+  account_token: z.string().min(1, "Account token is required"),
+});
+
+type FormData = ResendVerificationRequest;
+
+const ResendOtp = () => {
+  const location = useLocation();
+  const state = (location.state || {}) as {
+    email?: string;
+    account_token?: string;
+    login_token?: string;
+  };
+
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm<FormData>({
+    resolver: zodResolver(schema),
+    defaultValues: {
+      email: state.email || "",
+      account_token: state.account_token || state.login_token || "",
+    },
+  });
+
+  const onSubmit = async (data: ResendVerificationRequest) => {
+    setServerError(null);
+    setSuccessMessage(null);
+
+    try {
+      const res = await api.post<ResendVerificationResponse>(
+        "/resend-verification",
+        data
+      );
+      setSuccessMessage(res.data.message || "Verification OTP sent");
+    } catch (err: any) {
+      setServerError(
+        err.response?.data?.detail || "Failed to resend verification OTP"
+      );
+    }
+  };
+
+  return (
+    <Container className="py-5" style={{ maxWidth: 480 }}>
+      <div className="bg-white p-4 rounded shadow-sm">
+        <h1 className="h3 text-center mb-2">Resend Verification</h1>
+        <p className="text-center text-muted small mb-4">
+          Your account is not verified. Request a new verification code.
+        </p>
+
+        {successMessage && (
+          <Alert variant="success" className="text-center">
+            {successMessage}
+          </Alert>
+        )}
+
+        {serverError && (
+          <Alert variant="danger" className="text-center">
+            {serverError}
+          </Alert>
+        )}
+
+        <Form onSubmit={handleSubmit(onSubmit)}>
+          <Form.Group className="mb-3" controlId="email">
+            <Form.Label>Email</Form.Label>
+            <Form.Control
+              type="email"
+              isInvalid={!!errors.email}
+              {...register("email")}
+            />
+            <Form.Control.Feedback type="invalid">
+              {errors.email?.message}
+            </Form.Control.Feedback>
+          </Form.Group>
+
+          <Form.Group className="mb-4" controlId="account_token">
+            <Form.Label>Account Token</Form.Label>
+            <Form.Control
+              type="text"
+              placeholder="From login response"
+              isInvalid={!!errors.account_token}
+              {...register("account_token")}
+            />
+            <Form.Control.Feedback type="invalid">
+              {errors.account_token?.message}
+            </Form.Control.Feedback>
+            <Form.Text muted>
+              Required by backend to prevent abuse. Use the token from login if
+              available.
+            </Form.Text>
+          </Form.Group>
+
+          <Button
+            type="submit"
+            variant="primary"
+            className="w-100"
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? "Sending..." : "Resend Verification OTP"}
+          </Button>
+        </Form>
+
+        <p className="text-center mt-4 mb-0 small">
+          <Link to="/login">Back to Login</Link>
+        </p>
+      </div>
+    </Container>
+  );
+};
+
+export default ResendOtp;
+
+
 
           
