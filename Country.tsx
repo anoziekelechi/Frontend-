@@ -1,5 +1,118 @@
 
 
+
+// src/types/country/read.ts
+export interface CountryRead {
+  id: number;
+  name: string;
+  slug: string;
+  currency_code: string;
+  email_support?: string | null;
+  whatsapp?: string | number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// src/types/country/create.ts
+export interface CountryCreate {
+  name: string;
+  currency_code: string;
+  whatsapp?: string;
+  email_support?: string;
+}
+
+export interface CreateCountryResponse {
+  message: string;
+  country: CountryRead;
+}
+
+// list + update unchanged except CountryRead now has slug
+
+
+
+
+// src/pages/countries/CountriesList.tsx
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import Container from "react-bootstrap/Container";
+import ListGroup from "react-bootstrap/ListGroup";
+import Spinner from "react-bootstrap/Spinner";
+import Alert from "react-bootstrap/Alert";
+import api from "@/api/client";
+import { useAuth } from "@/context/AuthContext";
+import type { CountryListRead, CountryRead } from "@/types/country";
+
+const CountriesList = () => {
+  const { user } = useAuth();
+  const [countries, setCountries] = useState<CountryRead[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .get<CountryListRead>("/home/countries")
+      .then((res) => setCountries(res.data.countries ?? []))
+      .catch((err) =>
+        setError(err.response?.data?.detail || "Failed to load countries")
+      )
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <Container className="py-5 text-center">
+        <Spinner animation="border" role="status" />
+        <p className="mt-3 text-muted">Loading countries...</p>
+      </Container>
+    );
+  }
+
+  if (error) {
+    return (
+      <Container className="py-5">
+        <Alert variant="danger" className="text-center">
+          {error}
+        </Alert>
+      </Container>
+    );
+  }
+
+  return (
+    <Container className="py-4" style={{ maxWidth: 720 }}>
+      <div className="d-flex justify-content-between align-items-center mb-4">
+        <h6 className="h3 mb-0">Available Countries</h6>
+        {user?.is_admin && (
+          <Link to="/add_country" className="btn btn-primary">
+            + Add Country
+          </Link>
+        )}
+      </div>
+
+      {countries.length === 0 ? (
+        <p className="text-center text-muted py-5">No available country now</p>
+      ) : (
+        <ListGroup>
+          {countries.map((country) => (
+            <ListGroup.Item
+              key={country.id}
+              action
+              as={Link}
+              to={`/countries/${country.slug}`}
+              className="text-center text-info"
+            >
+              {country.name}
+            </ListGroup.Item>
+          ))}
+        </ListGroup>
+      )}
+    </Container>
+  );
+};
+
+export default CountriesList;
+
+
+
 // src/pages/countries/CreateCountry.tsx
 import { useState } from "react";
 import { useForm } from "react-hook-form";
@@ -56,34 +169,54 @@ const CreateCountry = () => {
       };
 
       const res = await api.post<CreateCountryResponse>("/add_country", payload);
-
       setSuccessMessage(res.data.message);
-
       setTimeout(() => navigate("/countries"), 1800);
     } catch (error: any) {
       const status = error.response?.status;
       const detail = error.response?.data?.detail;
 
+      if (status === 403) {
+        setServerError(
+          typeof detail === "string"
+            ? detail
+            : "Sorry we couldn't locate the page you are requesting for"
+        );
+        setTimeout(() => navigate("/", { replace: true }), 2000);
+        return;
+      }
+
+      if (status === 401) {
+        setServerError(typeof detail === "string" ? detail : "Authentication required");
+        setTimeout(() => navigate("/login", { replace: true }), 2000);
+        return;
+      }
+
       if (status === 409) {
-        setServerError(detail);
-      } else if (status === 422 && Array.isArray(detail)) {
+        setServerError(typeof detail === "string" ? detail : "Conflict");
+        return;
+      }
+
+      if (status === 422 && Array.isArray(detail)) {
         detail.forEach((err: any) => {
           const field = err.loc?.[err.loc.length - 1];
           if (typeof field === "string") {
             setError(field as keyof FormData, { message: err.msg });
           }
         });
-      } else {
-        setServerError(
-          typeof detail === "string" ? detail : "Something went wrong"
-        );
+        return;
       }
+
+      setServerError(
+        typeof detail === "string" ? detail : "Something went wrong"
+      );
     }
   };
 
   return (
     <Container className="py-5" style={{ maxWidth: 480 }}>
-        <h6 className="h3 text-center mb-4 fw-bolder text-info">Create Country Form</h6>
+      <h6 className="h3 text-center mb-4 fw-bolder text-info">
+        Create Country Form
+      </h6>
       <div className="bg-white p-4 rounded shadow-sm">
         {successMessage && (
           <Alert variant="success" className="text-center">
@@ -168,11 +301,6 @@ const CreateCountry = () => {
 export default CreateCountry;
 
 
-
-
-
-
-
 // src/pages/countries/CountryDetail.tsx
 import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
@@ -182,11 +310,13 @@ import Button from "react-bootstrap/Button";
 import Spinner from "react-bootstrap/Spinner";
 import Alert from "react-bootstrap/Alert";
 import api from "@/api/client";
+import { useAuth } from "@/context/AuthContext";
 import type { CountryRead } from "@/types/country";
 
 const CountryDetail = () => {
-  const { country_id } = useParams<{ country_id: string }>();
+  const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const [country, setCountry] = useState<CountryRead | null>(null);
   const [loading, setLoading] = useState(true);
@@ -194,27 +324,40 @@ const CountryDetail = () => {
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!country_id) return;
+    if (!slug) return;
 
     api
-      .get<CountryRead>(`/home/${country_id}`)
+      .get<CountryRead>(`/home/${slug}`)
       .then((res) => setCountry(res.data))
-      .catch((err) =>
-        setError(err.response?.data?.detail || "Country not found")
-      )
-      .finally(() => setLoading(false));
-  }, [country_id]);
+      .catch((err) => {
+        const status = err.response?.status;
+        const detail =
+          err.response?.data?.detail || "Country not found";
 
-  // Custom function — not a React default
+        setError(detail);
+
+        if (status === 403) {
+          setTimeout(() => navigate("/", { replace: true }), 2000);
+        }
+      })
+      .finally(() => setLoading(false));
+  }, [slug, navigate]);
+
   const handleDelete = async () => {
     if (!window.confirm("Are you sure you want to delete this country?")) return;
 
     try {
-      const res = await api.delete<{ message?: string }>(`/home/${country_id}`);
+      const res = await api.delete<{ message?: string }>(`/home/${slug}`);
       setMessage(res.data.message || "Country deleted successfully");
       setTimeout(() => navigate("/countries"), 1500);
     } catch (err: any) {
-      setError(err.response?.data?.detail || "Failed to delete country");
+      const status = err.response?.status;
+      const detail = err.response?.data?.detail || "Failed to delete country";
+      setError(detail);
+
+      if (status === 403) {
+        setTimeout(() => navigate("/", { replace: true }), 2000);
+      }
     }
   };
 
@@ -247,18 +390,20 @@ const CountryDetail = () => {
 
       <div className="d-flex justify-content-between align-items-start mb-4">
         <h1 className="h3 mb-0">{country.name}</h1>
+ 
         <div className="d-flex gap-2">
-          <Button
-            as={Link as any}
-            to={`/countries/${country.id}/edit`}
-            variant="warning"
-          >
-            Update
-          </Button>
-          <Button variant="danger" onClick={handleDelete}>
-            Delete
-          </Button>
-        </div>
+  <Button
+    as={Link as any}
+    to={`/countries/${country.slug}/edit`}
+    variant="warning"
+  >
+    Update
+  </Button>
+  <Button variant="danger" onClick={handleDelete}>
+    Delete
+  </Button>
+</div>
+        //
       </div>
 
       <ListGroup>
@@ -281,17 +426,17 @@ const CountryDetail = () => {
         <ListGroup.Item className="d-flex justify-content-between">
           <strong>Updated At</strong>
           <span>
-          {new Date(country.updated_at).toLocaleDateString("en-GB", {
-                day: "numeric",
-                month: "long",
-                year: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-                hour12: false,
-                timeZone: "UTC",
-                timeZoneName: "short"
-              })}
-            </span>
+            {new Date(country.updated_at).toLocaleDateString("en-GB", {
+              day: "numeric",
+              month: "long",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: false,
+              timeZone: "UTC",
+              timeZoneName: "short",
+            })}
+          </span>
         </ListGroup.Item>
       </ListGroup>
 
@@ -305,6 +450,7 @@ const CountryDetail = () => {
 export default CountryDetail;
 
 
+// src/pages/countries/UpdateCountry.tsx
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -336,7 +482,7 @@ const schema = z.object({
 type FormData = CountryUpdate;
 
 const UpdateCountry = () => {
-  const { country_id } = useParams<{ country_id: string }>();
+  const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);
@@ -353,10 +499,10 @@ const UpdateCountry = () => {
   });
 
   useEffect(() => {
-    if (!country_id) return;
+    if (!slug) return;
 
     api
-      .get<CountryRead>(`/home/${country_id}`)
+      .get<CountryRead>(`/home/${slug}`)
       .then((res) => {
         reset({
           name: res.data.name,
@@ -365,11 +511,17 @@ const UpdateCountry = () => {
           email_support: res.data.email_support || "",
         });
       })
-      .catch((err) =>
-        setServerError(err.response?.data?.detail || "Failed to load country")
-      )
+      .catch((err) => {
+        const status = err.response?.status;
+        const detail =
+          err.response?.data?.detail || "Failed to load country";
+        setServerError(detail);
+        if (status === 403) {
+          setTimeout(() => navigate("/", { replace: true }), 2000);
+        }
+      })
       .finally(() => setLoading(false));
-  }, [country_id, reset]);
+  }, [slug, reset, navigate]);
 
   const onSubmit = async (data: CountryUpdate) => {
     setServerError(null);
@@ -382,11 +534,23 @@ const UpdateCountry = () => {
         email_support: data.email_support || undefined,
       };
 
-      await api.put(`/home/${country_id}`, payload);
+      await api.put(`/home/${slug}`, payload);
       setSuccessMessage("Country updated successfully");
-      setTimeout(() => navigate(`/countries/${country_id}`), 1500);
+      setTimeout(() => navigate(`/countries/${slug}`), 1500);
     } catch (err: any) {
+      const status = err.response?.status;
       const detail = err.response?.data?.detail;
+
+      if (status === 403) {
+        setServerError(
+          typeof detail === "string"
+            ? detail
+            : "Sorry we couldn't locate the page you are requesting for"
+        );
+        setTimeout(() => navigate("/", { replace: true }), 2000);
+        return;
+      }
+
       setServerError(
         typeof detail === "string" ? detail : "Failed to update country"
       );
@@ -419,6 +583,7 @@ const UpdateCountry = () => {
         )}
 
         <Form onSubmit={handleSubmit(onSubmit)}>
+          {/* same fields as before */}
           <Form.Group className="mb-3" controlId="name">
             <Form.Label>Country Name</Form.Label>
             <Form.Control
@@ -450,12 +615,8 @@ const UpdateCountry = () => {
             <Form.Control
               type="text"
               placeholder="Optional"
-              isInvalid={!!errors.whatsapp}
               {...register("whatsapp")}
             />
-            <Form.Control.Feedback type="invalid">
-              {errors.whatsapp?.message}
-            </Form.Control.Feedback>
           </Form.Group>
 
           <Form.Group className="mb-4" controlId="email_support">
@@ -489,136 +650,38 @@ export default UpdateCountry;
 
 
 
-// src/pages/countries/CountriesList.tsx
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import Container from "react-bootstrap/Container";
-import ListGroup from "react-bootstrap/ListGroup";
-import Spinner from "react-bootstrap/Spinner";
-import Alert from "react-bootstrap/Alert";
-import api from "@/api/client";
-import type { CountryListRead, CountryRead } from "@/types/country";
 
-const CountriesList = () => {
-  const [countries, setCountries] = useState<CountryRead[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+app.tsx
 
-  useEffect(() => {
-    api
-      .get<CountryListRead>("/home/countries")
-      .then((res) => setCountries(res.data.countries ?? []))
-      .catch((err) =>
-        setError(err.response?.data?.detail || "Failed to load countries")
-      )
-      .finally(() => setLoading(false));
-  }, []);
+{ path: "/countries", element: <CountriesList /> },
 
-  if (loading) {
-    return (
-      <Container className="py-5 text-center">
-        <Spinner animation="border" role="status" />
-        <p className="mt-3 text-muted">Loading countries...</p>
-      </Container>
-    );
-  }
-
-  if (error) {
-    return (
-      <Container className="py-5">
-        <Alert variant="danger" className="text-center">
-          {error}
-        </Alert>
-      </Container>
-    );
-  }
-
-  return (
-    <Container className="py-4" style={{ maxWidth: 720 }}>
-      <div className="d-flex justify-content-between align-items-center mb-4">
-        <h6 className="h3 mb-0 text-center"> available Countries</h6>
-        <Link to="/add_country" className="btn btn-primary">
-          + Add Country
-        </Link>
-      </div>
-
-      {countries.length === 0 ? (
-        <p className="text-center text-muted py-5">No available country now</p>
-      ) : (
-        <ListGroup>
-          {countries.map((country) => (
-            <ListGroup.Item
-              className="text-center text-info"
-              key={country.id}
-              action
-              as={Link}
-              to={`/countries/${country.id}`}
-            >
-              {country.name}
-            </ListGroup.Item>
-          ))}
-        </ListGroup>
-      )}
-    </Container>
-  );
-};
-
-export default CountriesList;
+{
+  path: "/countries/:slug",
+  element: (
+    <AdminRoute>
+      <CountryDetail />
+    </AdminRoute>
+  ),
+},
+{
+  path: "/countries/:slug/edit",
+  element: (
+    <AdminRoute>
+      <UpdateCountry />
+    </AdminRoute>
+  ),
+},
+{
+  path: "/add_country",
+  element: (
+    <AdminRoute>
+      <CreateCountry />
+    </AdminRoute>
+  ),
+},
 
 
-
-
-export interface CountryCreate {
-    name: string;
-    currency_code: string;
-    whatsapp?: string;
-    email_support?:string;
-   
-  }
-  
-  export interface CreateCountryResponse {
-    message: string;
-    country: {
-      id: number;
-      name: string;
-      currency_code: string;
-      whatsapp: string;
-      email_support:string;
     
-    };
-  }
-
-
-
-import type { CountryRead } from "./read";
-
-export interface CountryListRead {
-  total: number;
-  countries: CountryRead[];
-}
-
-
-
-
-export interface CountryRead {
-    id: number;
-    name: string;
-    currency_code: string;
-    email_support?:string | null;
-    whatsapp?: string | number | null;
-    created_at: string;
-    updated_at: string;
-  }
-
-
-
-export interface CountryUpdate {
-    name?: string;
-    currency_code?: string;
-    email_support?:string;
-    whatsapp?: string;
-  }
-
 
 
 
