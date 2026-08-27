@@ -1,3 +1,151 @@
+// src/base/Navigation.tsx
+import { Link } from "react-router-dom";
+import Container from "react-bootstrap/Container";
+import Nav from "react-bootstrap/Nav";
+import Navbar from "react-bootstrap/Navbar";
+import { useAuth } from "@/context/AuthContext";
+import { useSite } from "@/context/SiteContext";
+
+const ADMIN_LINKS = [
+  { to: "/add_permission", label: "Add Permission" },
+  { to: "/revoke_permission", label: "Revoke Permission" },
+  { to: "/disabled_user", label: "Disabled Users" },
+  { to: "/add_country", label: "Add Country" },
+  { to: "/add_home", label: "Setup Home" },
+];
+
+const MAX_VISIBLE_ADMIN_LINKS = 10;
+
+const Navigation = () => {
+  const { user, isLoading: authLoading } = useAuth();
+  const { settings, isLoading: siteLoading } = useSite();
+
+  if (authLoading || siteLoading) {
+    return (
+      <Navbar expand="sm" className="bg-body-tertiary mt-2">
+        <Container fluid>
+          <Navbar.Brand>Loading...</Navbar.Brand>
+        </Container>
+      </Navbar>
+    );
+  }
+
+  const visibleAdminLinks = ADMIN_LINKS.slice(0, MAX_VISIBLE_ADMIN_LINKS);
+  const showViewMore = ADMIN_LINKS.length > MAX_VISIBLE_ADMIN_LINKS;
+
+  // Mirrors backend has_permission(): admins bypass every permission check.
+  const canAccess = (requiredPermission: string): boolean =>
+    !!user?.is_admin || user?.permission === requiredPermission;
+
+  return (
+    <Navbar
+      collapseOnSelect
+      expand="sm"
+      className="bg-body-tertiary mt-2 shadow-sm"
+    >
+      <Container fluid>
+        <Navbar.Brand
+          as={Link}
+          to="/"
+          className="d-flex align-items-center gap-2"
+        >
+          {settings.logo_key && (
+            <img
+              src={settings.logo_key}
+              alt="logo"
+              height="36"
+              className="d-inline-block"
+            />
+          )}
+          <span className="fw-bold">{settings.sitename}</span>
+        </Navbar.Brand>
+
+        <Navbar.Toggle aria-controls="responsive-navbar-nav" />
+
+        <Navbar.Collapse id="responsive-navbar-nav">
+          <Nav className="me-auto">
+            <Nav.Link as={Link} to="/">
+              Home
+            </Nav.Link>
+
+            {/* Everyone */}
+            <Nav.Link as={Link} to="/categories">
+              Categories
+            </Nav.Link>
+
+            <Nav.Link as={Link} to="/countries">
+              Countries
+            </Nav.Link>
+
+            {/* Admin */}
+            {user?.is_admin && (
+              <>
+                {visibleAdminLinks.map((link) => (
+                  <Nav.Link key={link.to} as={Link} to={link.to}>
+                    {link.label}
+                  </Nav.Link>
+                ))}
+                {showViewMore && (
+                  <Nav.Link as={Link} to="/dashboard">
+                    View more routes
+                  </Nav.Link>
+                )}
+              </>
+            )}
+
+            {/* manage_countries (admins included) */}
+            {canAccess("manage_countries") && (
+              <>
+                <Nav.Link as={Link} to="/add_office">
+                  Add Office
+                </Nav.Link>
+                <Nav.Link as={Link} to="/edit_office">
+                  Edit Office
+                </Nav.Link>
+                <Nav.Link as={Link} to="/delete_office">
+                  Delete Office
+                </Nav.Link>
+              </>
+            )}
+
+            {/* manage_products (admins included) */}
+            {canAccess("manage_products") && (
+              <>
+                <Nav.Link as={Link} to="/add_products">
+                  Add Products
+                </Nav.Link>
+                <Nav.Link as={Link} to="/edit_products">
+                  Edit Products
+                </Nav.Link>
+              </>
+            )}
+
+            {/* manage_logistics (admins included) */}
+            {canAccess("manage_logistics") && (
+              <>
+                <Nav.Link as={Link} to="/add_shipment">
+                  Add Shipment
+                </Nav.Link>
+                <Nav.Link as={Link} to="/track_shipment">
+                  Track Shipment
+                </Nav.Link>
+                <Nav.Link as={Link} to="/logistics_dashboard">
+                  Logistics Dashboard
+                </Nav.Link>
+              </>
+            )}
+          </Nav>
+        </Navbar.Collapse>
+      </Container>
+    </Navbar>
+  );
+};
+
+export default Navigation;
+
+
+
+
 
 // src/routes/AdminRoute.tsx
 import { Navigate, useLocation } from "react-router-dom";
