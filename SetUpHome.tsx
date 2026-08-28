@@ -1,5 +1,4 @@
 
-
 // src/pages/admin/SetupHome.tsx
 
 import { useState } from "react";
@@ -7,6 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useNavigate } from "react-router-dom";
+import axios from "axios";
 
 import Form from "react-bootstrap/Form";
 import Button from "react-bootstrap/Button";
@@ -16,6 +16,9 @@ import Alert from "react-bootstrap/Alert";
 import api from "@/api/client";
 import type { HomeSetupResponse } from "@/types/site";
 
+// =============================================================================
+// VALIDATION
+// =============================================================================
 
 const schema = z.object({
   sitename: z
@@ -37,9 +40,11 @@ const schema = z.object({
     .optional(),
 });
 
-
 type FormData = z.infer<typeof schema>;
 
+// =============================================================================
+// COMPONENT
+// =============================================================================
 
 const SetupHome = () => {
   const navigate = useNavigate();
@@ -66,6 +71,9 @@ const SetupHome = () => {
     },
   });
 
+  // ===========================================================================
+  // SUBMIT
+  // ===========================================================================
 
   const onSubmit = async (data: FormData) => {
     setServerError(null);
@@ -74,9 +82,12 @@ const SetupHome = () => {
     try {
       const formData = new FormData();
 
-      // -------------------------------------------------------------
+      // -----------------------------------------------------------------------
       // Site name
-      // -------------------------------------------------------------
+      //
+      // Optional for PATCH.
+      // If supplied, trim it before sending.
+      // -----------------------------------------------------------------------
 
       if (
         data.sitename !== undefined &&
@@ -88,20 +99,23 @@ const SetupHome = () => {
         );
       }
 
-      // -------------------------------------------------------------
+      // -----------------------------------------------------------------------
       // Intro
-      // -------------------------------------------------------------
+      //
+      // Send when provided.
+      // Empty string is allowed if your backend permits clearing intro.
+      // -----------------------------------------------------------------------
 
       if (data.intro !== undefined) {
         formData.append(
           "intro",
-          data.intro,
+          data.intro.trim(),
         );
       }
 
-      // -------------------------------------------------------------
+      // -----------------------------------------------------------------------
       // Logo
-      // -------------------------------------------------------------
+      // -----------------------------------------------------------------------
 
       const logoFile = data.logo_key?.[0];
 
@@ -112,9 +126,9 @@ const SetupHome = () => {
         );
       }
 
-      // -------------------------------------------------------------
+      // -----------------------------------------------------------------------
       // Banner
-      // -------------------------------------------------------------
+      // -----------------------------------------------------------------------
 
       const bannerFile = data.banner_key?.[0];
 
@@ -125,9 +139,9 @@ const SetupHome = () => {
         );
       }
 
-      // -------------------------------------------------------------
-      // Send PATCH
-      // -------------------------------------------------------------
+      // -----------------------------------------------------------------------
+      // PATCH request
+      // -----------------------------------------------------------------------
 
       const response =
         await api.patch<HomeSetupResponse>(
@@ -135,29 +149,50 @@ const SetupHome = () => {
           formData,
         );
 
+      // -----------------------------------------------------------------------
+      // Success
+      // -----------------------------------------------------------------------
+
       setSuccessMessage(
-        response.data.message ?? "Home settings saved successfully.",
+        response.data.message ??
+          "Home settings saved successfully.",
       );
 
-      // Redirect after successful update.
       window.setTimeout(() => {
         navigate("/");
       }, 1500);
 
-    } catch (error: any) {
+    } catch (error: unknown) {
 
-      const detail = error.response?.data?.detail;
+      // =====================================================================
+      // AXIOS ERROR
+      // =====================================================================
 
-      if (typeof detail === "string") {
-        setServerError(detail);
-      } else {
+      if (axios.isAxiosError(error)) {
+        const detail = error.response?.data?.detail;
+
         setServerError(
-          "Failed to save home settings.",
+          typeof detail === "string"
+            ? detail
+            : "Failed to save home settings.",
         );
+
+        return;
       }
+
+      // =====================================================================
+      // NON-AXIOS ERROR
+      // =====================================================================
+
+      setServerError(
+        "An unexpected error occurred.",
+      );
     }
   };
 
+  // ===========================================================================
+  // UI
+  // ===========================================================================
 
   return (
     <Container
@@ -170,10 +205,9 @@ const SetupHome = () => {
           Home Settings
         </h1>
 
-
-        {/* =========================================================
-            SUCCESS
-        ========================================================= */}
+        {/* ===================================================================
+            SUCCESS MESSAGE
+        =================================================================== */}
 
         {successMessage && (
           <Alert
@@ -188,10 +222,9 @@ const SetupHome = () => {
           </Alert>
         )}
 
-
-        {/* =========================================================
-            ERROR
-        ========================================================= */}
+        {/* ===================================================================
+            SERVER ERROR
+        =================================================================== */}
 
         {serverError && (
           <Alert
@@ -202,14 +235,17 @@ const SetupHome = () => {
           </Alert>
         )}
 
+        {/* ===================================================================
+            FORM
+        =================================================================== */}
 
         <Form
           onSubmit={handleSubmit(onSubmit)}
         >
 
-          {/* =======================================================
+          {/* =================================================================
               SITE NAME
-          ======================================================= */}
+          ================================================================= */}
 
           <Form.Group
             className="mb-3"
@@ -231,10 +267,9 @@ const SetupHome = () => {
             </Form.Control.Feedback>
           </Form.Group>
 
-
-          {/* =======================================================
+          {/* =================================================================
               INTRO
-          ======================================================= */}
+          ================================================================= */}
 
           <Form.Group
             className="mb-3"
@@ -257,10 +292,9 @@ const SetupHome = () => {
             </Form.Control.Feedback>
           </Form.Group>
 
-
-          {/* =======================================================
+          {/* =================================================================
               LOGO
-          ======================================================= */}
+          ================================================================= */}
 
           <Form.Group
             className="mb-3"
@@ -286,10 +320,9 @@ const SetupHome = () => {
             </Form.Control.Feedback>
           </Form.Group>
 
-
-          {/* =======================================================
+          {/* =================================================================
               BANNER
-          ======================================================= */}
+          ================================================================= */}
 
           <Form.Group
             className="mb-4"
@@ -315,10 +348,9 @@ const SetupHome = () => {
             </Form.Control.Feedback>
           </Form.Group>
 
-
-          {/* =======================================================
-              SUBMIT
-          ======================================================= */}
+          {/* =================================================================
+              SUBMIT BUTTON
+          ================================================================= */}
 
           <Button
             type="submit"
@@ -335,73 +367,9 @@ const SetupHome = () => {
           </Button>
 
         </Form>
-
       </div>
     </Container>
   );
 };
 
-
 export default SetupHome;
-
-
-// src/routes/AppRoutes.tsx (example)
-import { Routes, Route } from "react-router-dom";
-import SetupHome from "@/pages/admin/SetupHome";
-import { AdminRoute } from "@/routes/AdminRoute";
-
-export function AppRoutes() {
-  return (
-    <Routes>
-      {/* Public routes */}
-      <Route path="/" element={<Home />} />
-      <Route path="/login" element={<Login />} />
-      {/* ... other public routes */}
-
-      {/* Admin only routes */}
-      <Route
-        path="/admin/setup-home"
-        element={
-          <AdminRoute>
-            <SetupHome />
-          </AdminRoute>
-        }
-      />
-
-      {/* Other admin routes */}
-      <Route
-        path="/add_country"
-        element={
-          <AdminRoute>
-            <CreateCountry />
-          </AdminRoute>
-        }
-      />
-    </Routes>
-  );
-}
-
-
-
-
-// protected page
-import { useAuth } from "@/context/AuthContext";
-import { Navigate } from "react-router-dom";
-
-export default function SetupHome() {
-  const { user, isLoading } = useAuth();
-
-  if (isLoading) {
-    return <div className="p-8 text-center">Loading...</div>;
-  }
-
-  if (!user || !user.is_admin) {
-    return <Navigate to="/" replace />;
-  }
-
-  // ... rest of 
-
-
-{ path: "profile", element: <Profile /> },
-{ path: "contact-admin", element: <ContactAdmin /> },
-{ path: "resend-verification", element: <ResendOtp /> },
