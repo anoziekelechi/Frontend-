@@ -1,4 +1,241 @@
+// 
+// src/base/Navigation.tsx
 
+import { Link } from "react-router-dom";
+
+import Container from "react-bootstrap/Container";
+import Nav from "react-bootstrap/Nav";
+import Navbar from "react-bootstrap/Navbar";
+import NavDropdown from "react-bootstrap/NavDropdown";
+
+import { useAuth } from "@/context/AuthContext";
+import { useSite } from "@/context/SiteContext";
+
+const ADMIN_LINKS = [
+  { to: "/add_permission", label: "Add Permission" },
+  { to: "/revoke_permission", label: "Revoke Permission" },
+  { to: "/disabled_user", label: "Disabled Users" },
+  { to: "/add_country", label: "Add Country" },
+  { to: "/add_home", label: "Setup Home" },
+];
+
+const MANAGE_COUNTRIES_LINKS = [
+  { to: "/add_office", label: "Add Office" },
+  { to: "/edit_office", label: "Edit Office" },
+  { to: "/delete_office", label: "Delete Office" },
+];
+
+const MANAGE_PRODUCTS_LINKS = [
+  { to: "/add_products", label: "Add Products" },
+  { to: "/edit_products", label: "Edit Products" },
+];
+
+const MANAGE_LOGISTICS_LINKS = [
+  { to: "/add_shipment", label: "Add Shipment" },
+  { to: "/track_shipment", label: "Track Shipment" },
+  { to: "/logistics_dashboard", label: "Logistics Dashboard" },
+];
+
+const Navigation = () => {
+  const { user, isLoading: authLoading } = useAuth();
+  const { settings, isLoading: siteLoading } = useSite();
+
+  if (authLoading || siteLoading) {
+    return (
+      <Navbar expand="lg" className="bg-body-tertiary mt-2">
+        <Container fluid>
+          <Navbar.Brand>Loading...</Navbar.Brand>
+        </Container>
+      </Navbar>
+    );
+  }
+
+  /*
+   * Frontend permission check.
+   *
+   * IMPORTANT:
+   * This only controls what the user sees.
+   * Your backend must still enforce the actual permissions.
+   *
+   * Admins bypass permission checks.
+   */
+  const canAccess = (requiredPermission: string): boolean =>
+    !!user?.is_admin || user?.permission === requiredPermission;
+
+  const isAdmin = !!user?.is_admin;
+
+  const canManageCountries = canAccess("manage_countries");
+  const canManageProducts = canAccess("manage_products");
+  const canManageLogistics = canAccess("manage_logistics");
+
+  return (
+    <Navbar
+      collapseOnSelect
+      expand="lg"
+      className="bg-body-tertiary mt-2 shadow-sm"
+    >
+      <Container fluid>
+        {/* =========================================================
+            BRAND
+        ========================================================= */}
+
+        <Navbar.Brand
+          as={Link}
+          to="/"
+          className="d-flex align-items-center gap-2"
+        >
+          {settings.logo_key && (
+            <img
+              src={settings.logo_key}
+              alt={`${settings.sitename} logo`}
+              height="36"
+              className="d-inline-block"
+            />
+          )}
+
+          <span className="fw-bold">
+            {settings.sitename}
+          </span>
+        </Navbar.Brand>
+
+        <Navbar.Toggle
+          aria-controls="responsive-navbar-nav"
+        />
+
+        <Navbar.Collapse id="responsive-navbar-nav">
+          <Nav className="me-auto">
+
+            {/* =====================================================
+                PUBLIC ROUTES
+            ===================================================== */}
+
+            <Nav.Link
+              as={Link}
+              to="/"
+            >
+              Home
+            </Nav.Link>
+
+            <Nav.Link
+              as={Link}
+              to="/categories"
+            >
+              Categories
+            </Nav.Link>
+
+            <Nav.Link
+              as={Link}
+              to="/countries"
+            >
+              Countries
+            </Nav.Link>
+
+
+            {/* =====================================================
+                ADMIN ROUTES
+            ===================================================== */}
+
+            {isAdmin && (
+              <NavDropdown
+                title="Admin"
+                id="admin-nav-dropdown"
+              >
+                {ADMIN_LINKS.map((link) => (
+                  <NavDropdown.Item
+                    key={link.to}
+                    as={Link}
+                    to={link.to}
+                  >
+                    {link.label}
+                  </NavDropdown.Item>
+                ))}
+
+                <NavDropdown.Divider />
+
+                <NavDropdown.Item
+                  as={Link}
+                  to="/dashboard"
+                >
+                  Admin Dashboard
+                </NavDropdown.Item>
+              </NavDropdown>
+            )}
+
+
+            {/* =====================================================
+                MANAGE COUNTRIES
+            ===================================================== */}
+
+            {canManageCountries && (
+              <NavDropdown
+                title="Manage Countries"
+                id="manage-countries-dropdown"
+              >
+                {MANAGE_COUNTRIES_LINKS.map((link) => (
+                  <NavDropdown.Item
+                    key={link.to}
+                    as={Link}
+                    to={link.to}
+                  >
+                    {link.label}
+                  </NavDropdown.Item>
+                ))}
+              </NavDropdown>
+            )}
+
+
+            {/* =====================================================
+                MANAGE PRODUCTS
+            ===================================================== */}
+
+            {canManageProducts && (
+              <NavDropdown
+                title="Manage Products"
+                id="manage-products-dropdown"
+              >
+                {MANAGE_PRODUCTS_LINKS.map((link) => (
+                  <NavDropdown.Item
+                    key={link.to}
+                    as={Link}
+                    to={link.to}
+                  >
+                    {link.label}
+                  </NavDropdown.Item>
+                ))}
+              </NavDropdown>
+            )}
+
+
+            {/* =====================================================
+                MANAGE LOGISTICS
+            ===================================================== */}
+
+            {canManageLogistics && (
+              <NavDropdown
+                title="Manage Logistics"
+                id="manage-logistics-dropdown"
+              >
+                {MANAGE_LOGISTICS_LINKS.map((link) => (
+                  <NavDropdown.Item
+                    key={link.to}
+                    as={Link}
+                    to={link.to}
+                  >
+                    {link.label}
+                  </NavDropdown.Item>
+                ))}
+              </NavDropdown>
+            )}
+
+          </Nav>
+        </Navbar.Collapse>
+      </Container>
+    </Navbar>
+  );
+};
+
+export default Navigation;
+//
 import Container from 'react-bootstrap/Container';
 import Nav from 'react-bootstrap/Nav';
 import Navbar from 'react-bootstrap/Navbar';
