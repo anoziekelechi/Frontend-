@@ -1,329 +1,424 @@
-# WhatsApp (now unique)
-if data.whatsapp is not None and data.whatsapp != country.whatsapp:
-    existing_whatsapp = (
-        await db.execute(
-            select(Country).where(Country.whatsapp == data.whatsapp)
-        )
-    ).scalars().first()
-    if existing_whatsapp and existing_whatsapp.id != country_id:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"WhatsApp number '{data.whatsapp}' is already assigned to '{existing_whatsapp.name}'",
-        )
-    country.whatsapp = data.whatsapp
-    updated_fields.append("whatsapp")
-
-# Support email (now unique)
-if data.email_support is not None and data.email_support != country.email_support:
-    existing_email = (
-        await db.execute(
-            select(Country).where(Country.email_support == data.email_support)
-        )
-    ).scalars().first()
-    if existing_email and existing_email.id != country_id:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Support email '{data.email_support}' is already assigned to '{existing_email.name}'",
-        )
-    country.email_support = data.email_support
-    updated_fields.append("email_support")
-
-
-export interface LoginRequest {
-  email: string;
-  password: string;
-}
-
-export interface LoginResponse {
-  message: string;
-  email: string;
-  login_token: string;
-}
-
-export interface VerifyLoginResponse {
-  status: "success" | "disabled" | "unverified";
-  message: string;
-  email?: string;
-}
-
-
-export interface CreateUser {
-  surname: string;
-  othernames: string;
-  email: string;
-  password: string;
-  country_id: number;
-}
-
-export interface RegisterResponse {
-  message: string;
-  email: string;
-  reg_token: string;
-}
-
-export interface VerifyOtpRequest {
-  email: string;
-  account_token: string;
-  otp_code: string;
-}
 
 
 
-// src/pages/users/Registration.tsx
-import { useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { useState } from "react";
+import {
+  useForm,
+} from "react-hook-form";
+
+import {
+  zodResolver,
+} from "@hookform/resolvers/zod";
+
 import { z } from "zod";
-import { useNavigate, Link } from "react-router-dom";
-import Form from "react-bootstrap/Form";
-import Button from "react-bootstrap/Button";
-import Container from "react-bootstrap/Container";
-import Alert from "react-bootstrap/Alert";
+
+import {
+  Link,
+  useNavigate,
+} from "react-router-dom";
+
+import axios from "axios";
+
 import api from "@/api/client";
-import { useAuth } from "@/context/AuthContext";
-import type { CreateUser, RegisterResponse } from "@/types/user";
-import type { CountryListRead } from "@/types/country";
+
+import type {
+  RegisterResponse,
+} from "@/types/user/register";
 
 const schema = z.object({
-  surname: z.string().min(2, "Surname is required"),
-  othernames: z.string().min(2, "Other names are required"),
-  email: z.string().email("Invalid email"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-  country_id: z.coerce.number().min(1, "Country is required"),
+  surname: z
+    .string()
+    .trim()
+    .min(1, "Surname is required")
+    .max(100, "Surname is too long"),
+
+  othernames: z
+    .string()
+    .trim()
+    .min(1, "Other names are required")
+    .max(150, "Other names are too long"),
+
+  email: z
+    .string()
+    .trim()
+    .email("Please enter a valid email address"),
+
+  password: z
+    .string()
+    .min(
+      8,
+      "Password must be at least 8 characters"
+    ),
+
+  country_id: z.coerce
+    .number()
+    .int()
+    .positive("Please select a country"),
 });
 
-type FormData = CreateUser;
+type FormData = z.infer<typeof schema>;
 
-const Registration = () => {
+const Register = () => {
   const navigate = useNavigate();
-  const { user, isLoading: authLoading } = useAuth();
-  const [serverError, setServerError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [countries, setCountries] = useState<{ id: number; name: string }[]>([]);
+
+  const [serverError, setServerError] =
+    useState<string | null>(null);
+
+  const [successMessage, setSuccessMessage] =
+    useState<string | null>(null);
 
   const {
     register,
     handleSubmit,
-    formState: { errors, isSubmitting },
-    setError,
+    formState: {
+      errors,
+      isSubmitting,
+    },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
   });
 
-  useEffect(() => {
-    api
-      .get<CountryListRead>("/countries")
-      .then((res) => setCountries(res.data.countries || []))
-      .catch(() => setCountries([]));
-  }, []);
-
-  if (authLoading) {
-    return (
-      <Container className="py-5 text-center">
-        <p className="text-muted">Loading...</p>
-      </Container>
-    );
-  }
-
-  if (user) {
-    navigate("/profile", { replace: true });
-    return null;
-  }
-
-  const onSubmit = async (data: CreateUser) => {
+  const onSubmit = async (data: FormData) => {
     setServerError(null);
     setSuccessMessage(null);
 
     try {
-      const res = await api.post<RegisterResponse>("/register", data);
-      setSuccessMessage(res.data.message);
+      const response =
+        await api.post<RegisterResponse>(
+          "/register",
+          {
+            surname: data.surname.trim(),
+            othernames: data.othernames.trim(),
+            email: data.email.trim(),
+            password: data.password,
+            country_id: data.country_id,
+          }
+        );
 
-      setTimeout(() => {
+      setSuccessMessage(
+        response.data.message ||
+          "OTP sent to your email."
+      );
+
+      window.setTimeout(() => {
         navigate("/register/verify", {
+          replace: true,
           state: {
-            email: res.data.email,
-            reg_token: res.data.reg_token,
+            email: response.data.email,
+            reg_token: response.data.reg_token,
           },
         });
-      }, 1500);
-    } catch (err: any) {
-      const status = err.response?.status;
-      const detail = err.response?.data?.detail;
+      }, 1000);
 
-      if (status === 403) {
-        setServerError(detail || "Logged in user cannot create account");
-        setTimeout(() => navigate("/profile", { replace: true }), 2000);
+    } catch (error: unknown) {
+      if (axios.isAxiosError(error)) {
+        const detail =
+          error.response?.data?.detail;
+
+        setServerError(
+          typeof detail === "string"
+            ? detail
+            : "Registration failed."
+        );
+
         return;
       }
 
-      if (status === 422 && Array.isArray(detail)) {
-        detail.forEach((e: any) => {
-          const field = e.loc?.[e.loc.length - 1];
-          if (typeof field === "string") {
-            setError(field as keyof FormData, { message: e.msg });
-          }
-        });
-      } else {
-        setServerError(detail || "Registration failed");
-      }
+      setServerError(
+        "An unexpected error occurred."
+      );
     }
   };
 
   return (
-    <Container className="py-5" style={{ maxWidth: 480 }}>
-      <div className="bg-white p-4 rounded shadow-sm">
-        <h1 className="h3 text-center mb-4">Create Account</h1>
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8">
+
+        <h1 className="text-2xl font-bold text-center mb-6">
+          Create Account
+        </h1>
 
         {successMessage && (
-          <Alert variant="success" className="text-center">
+          <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-center">
             {successMessage}
-            <div className="small mt-1">Redirecting to verification...</div>
-          </Alert>
+
+            <p className="text-sm mt-1">
+              Redirecting to verification...
+            </p>
+          </div>
         )}
 
         {serverError && (
-          <Alert variant="danger" className="text-center">
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-center">
             {serverError}
-          </Alert>
+          </div>
         )}
 
-        <Form onSubmit={handleSubmit(onSubmit)}>
-          <Form.Group className="mb-3" controlId="surname">
-            <Form.Label>Surname</Form.Label>
-            <Form.Control
-              type="text"
-              isInvalid={!!errors.surname}
-              {...register("surname")}
-            />
-            <Form.Control.Feedback type="invalid">
-              {errors.surname?.message}
-            </Form.Control.Feedback>
-          </Form.Group>
+        <form
+          onSubmit={handleSubmit(onSubmit)}
+          className="space-y-4"
+        >
 
-          <Form.Group className="mb-3" controlId="othernames">
-            <Form.Label>Other Names</Form.Label>
-            <Form.Control
-              type="text"
-              isInvalid={!!errors.othernames}
-              {...register("othernames")}
-            />
-            <Form.Control.Feedback type="invalid">
-              {errors.othernames?.message}
-            </Form.Control.Feedback>
-          </Form.Group>
-
-          <Form.Group className="mb-3" controlId="email">
-            <Form.Label>Email</Form.Label>
-            <Form.Control
-              type="email"
-              isInvalid={!!errors.email}
-              {...register("email")}
-            />
-            <Form.Control.Feedback type="invalid">
-              {errors.email?.message}
-            </Form.Control.Feedback>
-          </Form.Group>
-
-          <Form.Group className="mb-3" controlId="password">
-            <Form.Label>Password</Form.Label>
-            <Form.Control
-              type="password"
-              isInvalid={!!errors.password}
-              {...register("password")}
-            />
-            <Form.Control.Feedback type="invalid">
-              {errors.password?.message}
-            </Form.Control.Feedback>
-          </Form.Group>
-
-          <Form.Group className="mb-4" controlId="country_id">
-            <Form.Label>Country</Form.Label>
-            <Form.Select
-              isInvalid={!!errors.country_id}
-              {...register("country_id")}
-              defaultValue=""
+          {/* Surname */}
+          <div>
+            <label
+              htmlFor="surname"
+              className="block text-sm font-medium mb-1"
             >
-              <option value="" disabled>
+              Surname
+            </label>
+
+            <input
+              id="surname"
+              type="text"
+              autoComplete="family-name"
+              {...register("surname")}
+              className={`w-full px-4 py-3 border rounded-lg ${
+                errors.surname
+                  ? "border-red-500"
+                  : "border-gray-300"
+              }`}
+            />
+
+            {errors.surname && (
+              <p className="text-sm text-red-600 mt-1">
+                {errors.surname.message}
+              </p>
+            )}
+          </div>
+
+          {/* Other names */}
+          <div>
+            <label
+              htmlFor="othernames"
+              className="block text-sm font-medium mb-1"
+            >
+              Other Names
+            </label>
+
+            <input
+              id="othernames"
+              type="text"
+              autoComplete="given-name"
+              {...register("othernames")}
+              className={`w-full px-4 py-3 border rounded-lg ${
+                errors.othernames
+                  ? "border-red-500"
+                  : "border-gray-300"
+              }`}
+            />
+
+            {errors.othernames && (
+              <p className="text-sm text-red-600 mt-1">
+                {errors.othernames.message}
+              </p>
+            )}
+          </div>
+
+          {/* Email */}
+          <div>
+            <label
+              htmlFor="email"
+              className="block text-sm font-medium mb-1"
+            >
+              Email
+            </label>
+
+            <input
+              id="email"
+              type="email"
+              autoComplete="email"
+              {...register("email")}
+              className={`w-full px-4 py-3 border rounded-lg ${
+                errors.email
+                  ? "border-red-500"
+                  : "border-gray-300"
+              }`}
+            />
+
+            {errors.email && (
+              <p className="text-sm text-red-600 mt-1">
+                {errors.email.message}
+              </p>
+            )}
+          </div>
+
+          {/* Password */}
+          <div>
+            <label
+              htmlFor="password"
+              className="block text-sm font-medium mb-1"
+            >
+              Password
+            </label>
+
+            <input
+              id="password"
+              type="password"
+              autoComplete="new-password"
+              {...register("password")}
+              className={`w-full px-4 py-3 border rounded-lg ${
+                errors.password
+                  ? "border-red-500"
+                  : "border-gray-300"
+              }`}
+            />
+
+            {errors.password && (
+              <p className="text-sm text-red-600 mt-1">
+                {errors.password.message}
+              </p>
+            )}
+          </div>
+
+          {/* Country */}
+          <div>
+            <label
+              htmlFor="country_id"
+              className="block text-sm font-medium mb-1"
+            >
+              Country
+            </label>
+
+            <select
+              id="country_id"
+              {...register("country_id")}
+              className={`w-full px-4 py-3 border rounded-lg ${
+                errors.country_id
+                  ? "border-red-500"
+                  : "border-gray-300"
+              }`}
+            >
+              <option value="">
                 Select country
               </option>
-              {countries.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </Form.Select>
-            <Form.Control.Feedback type="invalid">
-              {errors.country_id?.message}
-            </Form.Control.Feedback>
-          </Form.Group>
 
-          <Button
+              {/* Populate this from your country API */}
+            </select>
+
+            {errors.country_id && (
+              <p className="text-sm text-red-600 mt-1">
+                {errors.country_id.message}
+              </p>
+            )}
+          </div>
+
+          <button
             type="submit"
-            variant="primary"
-            className="w-100"
-            disabled={isSubmitting || !!successMessage}
+            disabled={
+              isSubmitting ||
+              successMessage !== null
+            }
+            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold disabled:opacity-50"
           >
-            {isSubmitting ? "Creating..." : "Register"}
-          </Button>
-        </Form>
+            {isSubmitting
+              ? "Creating account..."
+              : "Create Account"}
+          </button>
 
-        <p className="text-center mt-4 mb-0 small">
+        </form>
+
+        <p className="text-center mt-6 text-sm text-gray-600">
           Already have an account?{" "}
-          <Link to="/login">Login</Link>
+          <Link
+            to="/login"
+            className="text-blue-600 font-medium"
+          >
+            Login
+          </Link>
         </p>
+
       </div>
-    </Container>
+    </div>
   );
 };
 
-export default Registration;
+export default Register;
 
 
 
-// src/pages/users/VerifyRegistration.tsx
+//verify registration 
+
 import { useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+
+import {
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
+
+import {
+  useForm,
+} from "react-hook-form";
+
+import {
+  zodResolver,
+} from "@hookform/resolvers/zod";
+
 import { z } from "zod";
-import Form from "react-bootstrap/Form";
-import Button from "react-bootstrap/Button";
-import Container from "react-bootstrap/Container";
-import Alert from "react-bootstrap/Alert";
+
+import axios from "axios";
+
 import api from "@/api/client";
-import type { User } from "@/types/user";
+
+import type {
+  VerifyRegistrationResponse,
+} from "@/types/user/register";
 
 const schema = z.object({
   otp_code: z
     .string()
-    .length(6, "OTP must be 6 digits")
-    .regex(/^\d+$/, "OTP must be numbers only"),
+    .length(
+      6,
+      "OTP must be exactly 6 digits"
+    )
+    .regex(
+      /^\d{6}$/,
+      "OTP must contain numbers only"
+    ),
 });
 
 type FormData = z.infer<typeof schema>;
+
+interface RegistrationVerificationState {
+  email?: string;
+  reg_token?: string;
+}
 
 const VerifyRegistration = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const { email, reg_token } = (location.state || {}) as {
-    email?: string;
-    reg_token?: string;
-  };
+  const state =
+    (location.state || {}) as RegistrationVerificationState;
 
-  const [serverError, setServerError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const email = state.email;
+  const regToken = state.reg_token;
+
+  const [serverError, setServerError] =
+    useState<string | null>(null);
+
+  const [successMessage, setSuccessMessage] =
+    useState<string | null>(null);
 
   const {
     register,
     handleSubmit,
-    formState: { errors, isSubmitting },
+    formState: {
+      errors,
+      isSubmitting,
+    },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
   });
 
-  if (!email || !reg_token) {
-    navigate("/register", { replace: true });
+  /*
+   * Prevent direct access without registration flow.
+   */
+  if (!email || !regToken) {
+    navigate("/register", {
+      replace: true,
+    });
+
     return null;
   }
 
@@ -332,679 +427,199 @@ const VerifyRegistration = () => {
     setSuccessMessage(null);
 
     try {
-      await api.post<User>("/register/verify", {
-        email,
-        account_token: reg_token,
-        otp_code: data.otp_code,
-      });
+      const response =
+        await api.post<VerifyRegistrationResponse>(
+          "/register/verify",
+          {
+            email,
+            account_token: regToken,
+            otp_code: data.otp_code,
+          }
+        );
 
       setSuccessMessage(
-        "Your account has been verified successfully. You can now log in."
+        "Account verified successfully."
       );
-      setTimeout(() => navigate("/login", { replace: true }), 2000);
-    } catch (err: any) {
-      const status = err.response?.status;
-      const detail = err.response?.data?.detail || "Invalid or expired OTP";
 
-      if (status === 409) {
-        setServerError(detail);
-        setTimeout(() => navigate("/profile", { replace: true }), 2000);
+      /*
+       * Account has now been verified.
+       * Send the user to login rather than
+       * automatically creating authentication
+       * cookies.
+       */
+      window.setTimeout(() => {
+        navigate("/login", {
+          replace: true,
+          state: {
+            email:
+              response.data.email || email,
+          },
+        });
+      }, 1200);
+
+    } catch (error: unknown) {
+      if (axios.isAxiosError(error)) {
+        const status =
+          error.response?.status;
+
+        const detail =
+          error.response?.data?.detail;
+
+        const message =
+          typeof detail === "string"
+            ? detail
+            : "Verification failed.";
+
+        /*
+         * Invalid OTP.
+         */
+        if (status === 401) {
+          setServerError(message);
+          return;
+        }
+
+        /*
+         * Session expired or invalid.
+         */
+        if (status === 400) {
+          setServerError(message);
+
+          window.setTimeout(() => {
+            navigate("/register", {
+              replace: true,
+            });
+          }, 2000);
+
+          return;
+        }
+
+        /*
+         * Already verified.
+         */
+        if (status === 409) {
+          setServerError(message);
+
+          window.setTimeout(() => {
+            navigate("/login", {
+              replace: true,
+            });
+          }, 2000);
+
+          return;
+        }
+
+        /*
+         * Any other backend error.
+         */
+        setServerError(message);
         return;
       }
 
-      setServerError(detail);
+      setServerError(
+        "An unexpected error occurred."
+      );
     }
   };
 
   return (
-    <Container className="py-5" style={{ maxWidth: 480 }}>
-      <div className="bg-white p-4 rounded shadow-sm text-center">
-        <h1 className="h3 mb-2">Verify Your Email</h1>
-        <p className="text-muted mb-4">
-          We sent a 6-digit code to
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8 text-center">
+
+        <h1 className="text-2xl font-bold mb-2">
+          Verify Your Account
+        </h1>
+
+        <p className="text-gray-600 mb-6">
+          We sent a 6-digit verification code to
           <br />
           <strong>{email}</strong>
         </p>
 
         {successMessage && (
-          <Alert variant="success">
+          <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg">
             {successMessage}
-            <div className="small mt-1">Redirecting to login...</div>
-          </Alert>
+
+            <p className="text-sm mt-1">
+              Redirecting to login...
+            </p>
+          </div>
         )}
 
-        {serverError && <Alert variant="danger">{serverError}</Alert>}
+        {serverError && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg">
+            {serverError}
+          </div>
+        )}
 
-        <Form onSubmit={handleSubmit(onSubmit)}>
-          <Form.Group className="mb-4" controlId="otp_code">
-            <Form.Control
+        <form
+          onSubmit={handleSubmit(onSubmit)}
+          className="space-y-5"
+        >
+
+          <div>
+            <label
+              htmlFor="otp_code"
+              className="sr-only"
+            >
+              Verification code
+            </label>
+
+            <input
+              id="otp_code"
               type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
               maxLength={6}
               autoFocus
               placeholder="000000"
-              className="text-center fs-3 letter-spacing-2"
-              isInvalid={!!errors.otp_code}
               {...register("otp_code")}
+              className={`w-full px-4 py-4 text-center text-3xl tracking-widest font-mono border rounded-lg ${
+                errors.otp_code
+                  ? "border-red-500"
+                  : "border-gray-300"
+              }`}
             />
-            <Form.Control.Feedback type="invalid">
-              {errors.otp_code?.message}
-            </Form.Control.Feedback>
-          </Form.Group>
 
-          <Button
+            {errors.otp_code && (
+              <p className="text-sm text-red-600 mt-2">
+                {errors.otp_code.message}
+              </p>
+            )}
+          </div>
+
+          <button
             type="submit"
-            variant="primary"
-            className="w-100"
-            disabled={isSubmitting || !!successMessage}
+            disabled={
+              isSubmitting ||
+              successMessage !== null
+            }
+            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold disabled:opacity-50"
           >
-            {isSubmitting ? "Verifying..." : "Verify Account"}
-          </Button>
-        </Form>
+            {isSubmitting
+              ? "Verifying..."
+              : "Verify Account"}
+          </button>
+
+        </form>
+
+        <button
+          type="button"
+          disabled={isSubmitting}
+          onClick={() =>
+            navigate("/register", {
+              replace: true,
+            })
+          }
+          className="mt-4 text-sm text-blue-600 hover:underline"
+        >
+          Back to registration
+        </button>
+
       </div>
-    </Container>
+    </div>
   );
 };
 
 export default VerifyRegistration;
-
-
-
-
-
-
-// src/pages/users/Login.tsx
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { useNavigate, Link } from "react-router-dom";
-import { useState } from "react";
-import Form from "react-bootstrap/Form";
-import Button from "react-bootstrap/Button";
-import Container from "react-bootstrap/Container";
-import Alert from "react-bootstrap/Alert";
-import api from "@/api/client";
-import { useAuth } from "@/context/AuthContext";
-import type { LoginRequest, LoginResponse } from "@/types/user";
-
-const schema = z.object({
-  email: z.string().email("Invalid email"),
-  password: z.string().min(1, "Password is required"),
-});
-
-type FormData = LoginRequest;
-
-const Login = () => {
-  const navigate = useNavigate();
-  const { user, isLoading: authLoading } = useAuth();
-  const [serverError, setServerError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<FormData>({
-    resolver: zodResolver(schema),
-  });
-
-  if (authLoading) {
-    return (
-      <Container className="py-5 text-center">
-        <p className="text-muted">Loading...</p>
-      </Container>
-    );
-  }
-
-  if (user) {
-    navigate("/profile", { replace: true });
-    return null;
-  }
-
-  const onSubmit = async (data: LoginRequest) => {
-    setServerError(null);
-    setSuccessMessage(null);
-
-    try {
-      const res = await api.post<LoginResponse>("/login", data);
-      setSuccessMessage(res.data.message);
-
-      setTimeout(() => {
-        navigate("/login/verify", {
-          state: {
-            email: res.data.email,
-            login_token: res.data.login_token,
-          },
-        });
-      }, 1200);
-    } catch (err: any) {
-      const status = err.response?.status;
-      const detail = err.response?.data?.detail;
-
-      if (status === 403) {
-        setServerError(detail || "Already logged in");
-        setTimeout(() => navigate("/profile", { replace: true }), 2000);
-        return;
-      }
-
-      if (status === 401) {
-        setServerError(detail || "Invalid credentials");
-        return;
-      }
-
-      if (status === 429) {
-        setServerError(detail || "Too many login attempts");
-        return;
-      }
-
-      setServerError(detail || "Login failed");
-    }
-  };
-
-  return (
-    <Container className="py-5" style={{ maxWidth: 480 }}>
-      <div className="bg-white p-4 rounded shadow-sm">
-        <h1 className="h3 text-center mb-4">Welcome Back</h1>
-
-        {successMessage && (
-          <Alert variant="success" className="text-center">
-            {successMessage}
-            <div className="small mt-1">Redirecting to OTP page...</div>
-          </Alert>
-        )}
-
-        {serverError && (
-          <Alert variant="danger" className="text-center">
-            {serverError}
-          </Alert>
-        )}
-
-        <Form onSubmit={handleSubmit(onSubmit)}>
-          <Form.Group className="mb-3" controlId="email">
-            <Form.Label>Email</Form.Label>
-            <Form.Control
-              type="email"
-              isInvalid={!!errors.email}
-              {...register("email")}
-            />
-            <Form.Control.Feedback type="invalid">
-              {errors.email?.message}
-            </Form.Control.Feedback>
-          </Form.Group>
-
-          <Form.Group className="mb-4" controlId="password">
-            <Form.Label>Password</Form.Label>
-            <Form.Control
-              type="password"
-              isInvalid={!!errors.password}
-              {...register("password")}
-            />
-            <Form.Control.Feedback type="invalid">
-              {errors.password?.message}
-            </Form.Control.Feedback>
-          </Form.Group>
-
-          <Button
-            type="submit"
-            variant="primary"
-            className="w-100"
-            disabled={isSubmitting || !!successMessage}
-          >
-            {isSubmitting ? "Checking..." : "Continue"}
-          </Button>
-        </Form>
-
-        <p className="text-center mt-4 mb-0 small">
-          No account? <Link to="/register">Register</Link>
-        </p>
-      </div>
-    </Container>
-  );
-};
-
-export default Login;
-
-
-
-
-
-// src/pages/users/VerifyLogin.tsx
-import { useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import Form from "react-bootstrap/Form";
-import Button from "react-bootstrap/Button";
-import Container from "react-bootstrap/Container";
-import Alert from "react-bootstrap/Alert";
-import api from "@/api/client";
-import { useAuth } from "@/context/AuthContext";
-import type { VerifyLoginResponse } from "@/types/user";
-
-const schema = z.object({
-  otp_code: z
-    .string()
-    .length(6, "OTP must be 6 digits")
-    .regex(/^\d+$/, "OTP must be numbers only"),
-});
-
-type FormData = z.infer<typeof schema>;
-
-const VerifyLogin = () => {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const { user, login, isLoading: authLoading } = useAuth();
-
-  const { email, login_token } = (location.state || {}) as {
-    email?: string;
-    login_token?: string;
-  };
-
-  const [serverError, setServerError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<FormData>({
-    resolver: zodResolver(schema),
-  });
-
-  if (authLoading) {
-    return (
-      <Container className="py-5 text-center">
-        <p className="text-muted">Loading...</p>
-      </Container>
-    );
-  }
-
-  if (user) {
-    navigate("/profile", { replace: true });
-    return null;
-  }
-
-  if (!email || !login_token) {
-    navigate("/login", { replace: true });
-    return null;
-  }
-
-  const onSubmit = async (data: FormData) => {
-    setServerError(null);
-    setSuccessMessage(null);
-
-    try {
-      const res = await api.post<VerifyLoginResponse>("/login/verify", {
-        email,
-        account_token: login_token,
-        otp_code: data.otp_code,
-      });
-
-      const { status, message } = res.data;
-
-      if (status === "disabled") {
-        setServerError(message);
-        setTimeout(() => {
-          navigate("/contact-admin", {
-            replace: true,
-            state: { email: res.data.email || email },
-          });
-        }, 2000);
-        return;
-      }
-
-      if (status === "unverified") {
-        setServerError(message);
-        setTimeout(() => {
-          navigate("/resend-verification", {
-            replace: true,
-            state: { email: res.data.email || email, login_token },
-          });
-        }, 2000);
-        return;
-      }
-
-      if (status === "success") {
-        setSuccessMessage(message);
-        login();
-        setTimeout(() => navigate("/profile", { replace: true }), 1500);
-      }
-    } catch (err: any) {
-      const status = err.response?.status;
-      const detail = err.response?.data?.detail;
-
-      if (status === 403) {
-        setServerError(detail || "Already logged in. Please logout first.");
-        setTimeout(() => navigate("/profile", { replace: true }), 2000);
-        return;
-      }
-
-      if (status === 401 || status === 400) {
-        setServerError(detail || "Invalid credentials");
-        setTimeout(() => navigate("/login", { replace: true }), 2000);
-        return;
-      }
-
-      setServerError(detail || "Verification failed");
-    }
-  };
-
-  return (
-    <Container className="py-5" style={{ maxWidth: 480 }}>
-      <div className="bg-white p-4 rounded shadow-sm text-center">
-        <h1 className="h3 mb-2">Enter Login Code</h1>
-        <p className="text-muted mb-4">
-          We sent a 6-digit code to
-          <br />
-          <strong>{email}</strong>
-        </p>
-
-        {successMessage && (
-          <Alert variant="success">
-            {successMessage}
-            <div className="small mt-1">Redirecting to profile...</div>
-          </Alert>
-        )}
-
-        {serverError && (
-          <Alert variant="danger">
-            {serverError}
-            <div className="small mt-1">Redirecting...</div>
-          </Alert>
-        )}
-
-        <Form onSubmit={handleSubmit(onSubmit)}>
-          <Form.Group className="mb-4" controlId="otp_code">
-            <Form.Control
-              type="text"
-              maxLength={6}
-              autoFocus
-              placeholder="000000"
-              className="text-center fs-3"
-              isInvalid={!!errors.otp_code}
-              {...register("otp_code")}
-            />
-            <Form.Control.Feedback type="invalid">
-              {errors.otp_code?.message}
-            </Form.Control.Feedback>
-          </Form.Group>
-
-          <Button
-            type="submit"
-            variant="primary"
-            className="w-100"
-            disabled={isSubmitting || !!successMessage}
-          >
-            {isSubmitting ? "Verifying..." : "Complete Login"}
-          </Button>
-        </Form>
-      </div>
-    </Container>
-  );
-};
-
-export default VerifyLogin;
-
-
-
-
-// src/pages/users/ContactAdmin.tsx
-import { useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { Link } from "react-router-dom";
-import Form from "react-bootstrap/Form";
-import Button from "react-bootstrap/Button";
-import Container from "react-bootstrap/Container";
-import Alert from "react-bootstrap/Alert";
-import api from "@/api/client";
-import type { ContactAdminMessage, ContactAdminResponse } from "@/types/user";
-
-const schema = z.object({
-  email: z.string().email("Invalid email"),
-  message: z
-    .string()
-    .min(10, "Message must be at least 10 characters")
-    .max(1000, "Message is too long"),
-});
-
-type FormData = ContactAdminMessage;
-
-const ContactAdmin = () => {
-  const [serverError, setServerError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-
-  const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { errors, isSubmitting },
-  } = useForm<FormData>({
-    resolver: zodResolver(schema),
-  });
-
-  const onSubmit = async (data: ContactAdminMessage) => {
-    setServerError(null);
-    setSuccessMessage(null);
-
-    try {
-      const res = await api.post<ContactAdminResponse>("/contact-admin", data);
-      setSuccessMessage(res.data.message || "Message sent to admin");
-      reset();
-    } catch (err: any) {
-      setServerError(
-        err.response?.data?.detail || "Failed to send message"
-      );
-    }
-  };
-
-  return (
-    <Container className="py-5" style={{ maxWidth: 480 }}>
-      <div className="bg-white p-4 rounded shadow-sm">
-        <h1 className="h3 text-center mb-2">Contact Admin</h1>
-        <p className="text-center text-muted small mb-4">
-          Your account appears to be suspended. Send a message to request
-          reactivation.
-        </p>
-
-        {successMessage && (
-          <Alert variant="success" className="text-center">
-            {successMessage}
-          </Alert>
-        )}
-
-        {serverError && (
-          <Alert variant="danger" className="text-center">
-            {serverError}
-          </Alert>
-        )}
-
-        <Form onSubmit={handleSubmit(onSubmit)}>
-          <Form.Group className="mb-3" controlId="email">
-            <Form.Label>Email</Form.Label>
-            <Form.Control
-              type="email"
-              placeholder="your@email.com"
-              isInvalid={!!errors.email}
-              {...register("email")}
-            />
-            <Form.Control.Feedback type="invalid">
-              {errors.email?.message}
-            </Form.Control.Feedback>
-          </Form.Group>
-
-          <Form.Group className="mb-4" controlId="message">
-            <Form.Label>Message</Form.Label>
-            <Form.Control
-              as="textarea"
-              rows={5}
-              placeholder="Explain why your account should be reactivated..."
-              isInvalid={!!errors.message}
-              {...register("message")}
-            />
-            <Form.Control.Feedback type="invalid">
-              {errors.message?.message}
-            </Form.Control.Feedback>
-          </Form.Group>
-
-          <Button
-            type="submit"
-            variant="primary"
-            className="w-100"
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? "Sending..." : "Send Message"}
-          </Button>
-        </Form>
-
-        <p className="text-center mt-4 mb-0 small">
-          <Link to="/login">Back to Login</Link>
-        </p>
-      </div>
-    </Container>
-  );
-};
-
-export default ContactAdmin;
-
-
-
-
-
-// src/pages/users/ResendOtp.tsx
-import { useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { Link, useLocation } from "react-router-dom";
-import Form from "react-bootstrap/Form";
-import Button from "react-bootstrap/Button";
-import Container from "react-bootstrap/Container";
-import Alert from "react-bootstrap/Alert";
-import api from "@/api/client";
-import type {
-  ResendVerificationRequest,
-  ResendVerificationResponse,
-} from "@/types/user";
-
-const schema = z.object({
-  email: z.string().email("Invalid email"),
-  account_token: z.string().min(1, "Account token is required"),
-});
-
-type FormData = ResendVerificationRequest;
-
-const ResendOtp = () => {
-  const location = useLocation();
-  const state = (location.state || {}) as {
-    email?: string;
-    account_token?: string;
-    login_token?: string;
-  };
-
-  const [serverError, setServerError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<FormData>({
-    resolver: zodResolver(schema),
-    defaultValues: {
-      email: state.email || "",
-      account_token: state.account_token || state.login_token || "",
-    },
-  });
-
-  const onSubmit = async (data: ResendVerificationRequest) => {
-    setServerError(null);
-    setSuccessMessage(null);
-
-    try {
-      const res = await api.post<ResendVerificationResponse>(
-        "/resend-verification",
-        data
-      );
-      setSuccessMessage(res.data.message || "Verification OTP sent");
-    } catch (err: any) {
-      setServerError(
-        err.response?.data?.detail || "Failed to resend verification OTP"
-      );
-    }
-  };
-
-  return (
-    <Container className="py-5" style={{ maxWidth: 480 }}>
-      <div className="bg-white p-4 rounded shadow-sm">
-        <h1 className="h3 text-center mb-2">Resend Verification</h1>
-        <p className="text-center text-muted small mb-4">
-          Your account is not verified. Request a new verification code.
-        </p>
-
-        {successMessage && (
-          <Alert variant="success" className="text-center">
-            {successMessage}
-          </Alert>
-        )}
-
-        {serverError && (
-          <Alert variant="danger" className="text-center">
-            {serverError}
-          </Alert>
-        )}
-
-        <Form onSubmit={handleSubmit(onSubmit)}>
-          <Form.Group className="mb-3" controlId="email">
-            <Form.Label>Email</Form.Label>
-            <Form.Control
-              type="email"
-              isInvalid={!!errors.email}
-              {...register("email")}
-            />
-            <Form.Control.Feedback type="invalid">
-              {errors.email?.message}
-            </Form.Control.Feedback>
-          </Form.Group>
-
-          <Form.Group className="mb-4" controlId="account_token">
-            <Form.Label>Account Token</Form.Label>
-            <Form.Control
-              type="text"
-              placeholder="From login response"
-              isInvalid={!!errors.account_token}
-              {...register("account_token")}
-            />
-            <Form.Control.Feedback type="invalid">
-              {errors.account_token?.message}
-            </Form.Control.Feedback>
-            <Form.Text muted>
-              Required by backend to prevent abuse. Use the token from login if
-              available.
-            </Form.Text>
-          </Form.Group>
-
-          <Button
-            type="submit"
-            variant="primary"
-            className="w-100"
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? "Sending..." : "Resend Verification OTP"}
-          </Button>
-        </Form>
-
-        <p className="text-center mt-4 mb-0 small">
-          <Link to="/login">Back to Login</Link>
-        </p>
-      </div>
-    </Container>
-  );
-};
-
-export default ResendOtp;
-
-
 
           
