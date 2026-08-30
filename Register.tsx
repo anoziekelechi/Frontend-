@@ -1,42 +1,43 @@
 
 
-
-import { useState } from "react";
-import {
-  useForm,
-} from "react-hook-form";
-
-import {
-  zodResolver,
-} from "@hookform/resolvers/zod";
-
+          import { useEffect, useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-
-import {
-  Link,
-  useNavigate,
-} from "react-router-dom";
-
+import { useNavigate, Link } from "react-router-dom";
 import axios from "axios";
 
+import Form from "react-bootstrap/Form";
+import Button from "react-bootstrap/Button";
+import Container from "react-bootstrap/Container";
+import Alert from "react-bootstrap/Alert";
+import Spinner from "react-bootstrap/Spinner";
+
 import api from "@/api/client";
+import { useAuth } from "@/context/AuthContext";
 
 import type {
+  CreateUser,
   RegisterResponse,
-} from "@/types/user/register";
+} from "@/types/user";
+
+import type {
+  CountryListRead,
+} from "@/types/country";
+
 
 const schema = z.object({
   surname: z
     .string()
     .trim()
-    .min(1, "Surname is required")
-    .max(100, "Surname is too long"),
+    .min(2, "Surname must be at least 2 characters")
+    .max(100, "Surname must not exceed 100 characters"),
 
   othernames: z
     .string()
     .trim()
-    .min(1, "Other names are required")
-    .max(150, "Other names are too long"),
+    .min(2, "Other names must be at least 2 characters")
+    .max(150, "Other names must not exceed 150 characters"),
 
   email: z
     .string()
@@ -45,10 +46,7 @@ const schema = z.object({
 
   password: z
     .string()
-    .min(
-      8,
-      "Password must be at least 8 characters"
-    ),
+    .min(6, "Password must be at least 6 characters"),
 
   country_id: z.coerce
     .number()
@@ -56,16 +54,31 @@ const schema = z.object({
     .positive("Please select a country"),
 });
 
+
 type FormData = z.infer<typeof schema>;
 
-const Register = () => {
+
+const Registration = () => {
   const navigate = useNavigate();
+
+  const {
+    user,
+    isLoading: authLoading,
+  } = useAuth();
+
+  const [countries, setCountries] = useState<
+    { id: number; name: string }[]
+  >([]);
+
+  const [countriesLoading, setCountriesLoading] =
+    useState(true);
 
   const [serverError, setServerError] =
     useState<string | null>(null);
 
   const [successMessage, setSuccessMessage] =
     useState<string | null>(null);
+
 
   const {
     register,
@@ -74,31 +87,114 @@ const Register = () => {
       errors,
       isSubmitting,
     },
+    setError,
   } = useForm<FormData>({
     resolver: zodResolver(schema),
+    defaultValues: {
+      surname: "",
+      othernames: "",
+      email: "",
+      password: "",
+      country_id: 0,
+    },
   });
+
+
+  /*
+   * Load countries.
+   */
+  useEffect(() => {
+    let mounted = true;
+
+    const loadCountries = async () => {
+      try {
+        setCountriesLoading(true);
+
+        const response =
+          await api.get<CountryListRead>(
+            "/countries"
+          );
+
+        if (mounted) {
+          setCountries(
+            response.data.countries || []
+          );
+        }
+
+      } catch {
+        if (mounted) {
+          setCountries([]);
+          setServerError(
+            "Unable to load countries. Please try again."
+          );
+        }
+
+      } finally {
+        if (mounted) {
+          setCountriesLoading(false);
+        }
+      }
+    };
+
+    loadCountries();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+
+  /*
+   * Authentication loading.
+   */
+  if (authLoading) {
+    return (
+      <Container className="py-5 text-center">
+        <Spinner animation="border" />
+        <p className="text-muted mt-2">
+          Loading...
+        </p>
+      </Container>
+    );
+  }
+
+
+  /*
+   * Already authenticated.
+   */
+  if (user) {
+    navigate("/profile", {
+      replace: true,
+    });
+
+    return null;
+  }
+
 
   const onSubmit = async (data: FormData) => {
     setServerError(null);
     setSuccessMessage(null);
 
     try {
+      const payload: CreateUser = {
+        surname: data.surname.trim(),
+        othernames: data.othernames.trim(),
+        email: data.email.trim().toLowerCase(),
+        password: data.password,
+        country_id: data.country_id,
+      };
+
       const response =
         await api.post<RegisterResponse>(
           "/register",
-          {
-            surname: data.surname.trim(),
-            othernames: data.othernames.trim(),
-            email: data.email.trim(),
-            password: data.password,
-            country_id: data.country_id,
-          }
+          payload
         );
 
       setSuccessMessage(
         response.data.message ||
           "OTP sent to your email."
       );
+
 
       window.setTimeout(() => {
         navigate("/register/verify", {
@@ -108,239 +204,299 @@ const Register = () => {
             reg_token: response.data.reg_token,
           },
         });
-      }, 1000);
+      }, 1200);
 
     } catch (error: unknown) {
+
+      /*
+       * Axios/FastAPI error.
+       */
       if (axios.isAxiosError(error)) {
+
+        const status =
+          error.response?.status;
+
         const detail =
           error.response?.data?.detail;
 
+
+        /*
+         * FastAPI/Pydantic validation errors.
+         */
+        if (
+          status === 422 &&
+          Array.isArray(detail)
+        ) {
+
+          detail.forEach((item: unknown) => {
+
+            if (
+              typeof item !== "object" ||
+              item === null
+            ) {
+              return;
+            }
+
+            const validationError =
+              item as {
+                loc?: unknown[];
+                msg?: string;
+              };
+
+            const field =
+              validationError.loc?.[
+                validationError.loc.length - 1
+              ];
+
+            if (
+              typeof field === "string" &&
+              validationError.msg
+            ) {
+              setError(
+                field as keyof FormData,
+                {
+                  type: "server",
+                  message:
+                    validationError.msg,
+                }
+              );
+            }
+
+          });
+
+          return;
+        }
+
+
+        /*
+         * Normal HTTPException.
+         */
+        if (typeof detail === "string") {
+          setServerError(detail);
+          return;
+        }
+
+
         setServerError(
-          typeof detail === "string"
-            ? detail
-            : "Registration failed."
+          "Registration failed. Please try again."
         );
 
         return;
       }
 
+
+      /*
+       * Non-Axios error.
+       */
       setServerError(
         "An unexpected error occurred."
       );
     }
   };
 
-  return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8">
 
-        <h1 className="text-2xl font-bold text-center mb-6">
+  return (
+    <Container
+      className="py-5"
+      style={{ maxWidth: 480 }}
+    >
+      <div className="bg-white p-4 rounded shadow-sm">
+
+        <h1 className="h3 text-center mb-4">
           Create Account
         </h1>
 
+
         {successMessage && (
-          <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-center">
+          <Alert
+            variant="success"
+            className="text-center"
+          >
             {successMessage}
 
-            <p className="text-sm mt-1">
+            <div className="small mt-1">
               Redirecting to verification...
-            </p>
-          </div>
+            </div>
+          </Alert>
         )}
+
 
         {serverError && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-center">
+          <Alert
+            variant="danger"
+            className="text-center"
+          >
             {serverError}
-          </div>
+          </Alert>
         )}
 
-        <form
+
+        <Form
           onSubmit={handleSubmit(onSubmit)}
-          className="space-y-4"
         >
 
-          {/* Surname */}
-          <div>
-            <label
-              htmlFor="surname"
-              className="block text-sm font-medium mb-1"
-            >
+          <Form.Group
+            className="mb-3"
+            controlId="surname"
+          >
+            <Form.Label>
               Surname
-            </label>
+            </Form.Label>
 
-            <input
-              id="surname"
+            <Form.Control
               type="text"
               autoComplete="family-name"
+              isInvalid={!!errors.surname}
               {...register("surname")}
-              className={`w-full px-4 py-3 border rounded-lg ${
-                errors.surname
-                  ? "border-red-500"
-                  : "border-gray-300"
-              }`}
             />
 
-            {errors.surname && (
-              <p className="text-sm text-red-600 mt-1">
-                {errors.surname.message}
-              </p>
-            )}
-          </div>
+            <Form.Control.Feedback type="invalid">
+              {errors.surname?.message}
+            </Form.Control.Feedback>
+          </Form.Group>
 
-          {/* Other names */}
-          <div>
-            <label
-              htmlFor="othernames"
-              className="block text-sm font-medium mb-1"
-            >
+
+          <Form.Group
+            className="mb-3"
+            controlId="othernames"
+          >
+            <Form.Label>
               Other Names
-            </label>
+            </Form.Label>
 
-            <input
-              id="othernames"
+            <Form.Control
               type="text"
               autoComplete="given-name"
+              isInvalid={!!errors.othernames}
               {...register("othernames")}
-              className={`w-full px-4 py-3 border rounded-lg ${
-                errors.othernames
-                  ? "border-red-500"
-                  : "border-gray-300"
-              }`}
             />
 
-            {errors.othernames && (
-              <p className="text-sm text-red-600 mt-1">
-                {errors.othernames.message}
-              </p>
-            )}
-          </div>
+            <Form.Control.Feedback type="invalid">
+              {errors.othernames?.message}
+            </Form.Control.Feedback>
+          </Form.Group>
 
-          {/* Email */}
-          <div>
-            <label
-              htmlFor="email"
-              className="block text-sm font-medium mb-1"
-            >
+
+          <Form.Group
+            className="mb-3"
+            controlId="email"
+          >
+            <Form.Label>
               Email
-            </label>
+            </Form.Label>
 
-            <input
-              id="email"
+            <Form.Control
               type="email"
               autoComplete="email"
+              isInvalid={!!errors.email}
               {...register("email")}
-              className={`w-full px-4 py-3 border rounded-lg ${
-                errors.email
-                  ? "border-red-500"
-                  : "border-gray-300"
-              }`}
             />
 
-            {errors.email && (
-              <p className="text-sm text-red-600 mt-1">
-                {errors.email.message}
-              </p>
-            )}
-          </div>
+            <Form.Control.Feedback type="invalid">
+              {errors.email?.message}
+            </Form.Control.Feedback>
+          </Form.Group>
 
-          {/* Password */}
-          <div>
-            <label
-              htmlFor="password"
-              className="block text-sm font-medium mb-1"
-            >
+
+          <Form.Group
+            className="mb-3"
+            controlId="password"
+          >
+            <Form.Label>
               Password
-            </label>
+            </Form.Label>
 
-            <input
-              id="password"
+            <Form.Control
               type="password"
               autoComplete="new-password"
+              isInvalid={!!errors.password}
               {...register("password")}
-              className={`w-full px-4 py-3 border rounded-lg ${
-                errors.password
-                  ? "border-red-500"
-                  : "border-gray-300"
-              }`}
             />
 
-            {errors.password && (
-              <p className="text-sm text-red-600 mt-1">
-                {errors.password.message}
-              </p>
-            )}
-          </div>
+            <Form.Control.Feedback type="invalid">
+              {errors.password?.message}
+            </Form.Control.Feedback>
+          </Form.Group>
 
-          {/* Country */}
-          <div>
-            <label
-              htmlFor="country_id"
-              className="block text-sm font-medium mb-1"
-            >
+
+          <Form.Group
+            className="mb-4"
+            controlId="country_id"
+          >
+            <Form.Label>
               Country
-            </label>
+            </Form.Label>
 
-            <select
-              id="country_id"
+            <Form.Select
+              isInvalid={!!errors.country_id}
+              disabled={countriesLoading}
               {...register("country_id")}
-              className={`w-full px-4 py-3 border rounded-lg ${
-                errors.country_id
-                  ? "border-red-500"
-                  : "border-gray-300"
-              }`}
             >
-              <option value="">
-                Select country
+              <option value={0}>
+                {countriesLoading
+                  ? "Loading countries..."
+                  : "Select country"}
               </option>
 
-              {/* Populate this from your country API */}
-            </select>
+              {countries.map((country) => (
+                <option
+                  key={country.id}
+                  value={country.id}
+                >
+                  {country.name}
+                </option>
+              ))}
+            </Form.Select>
 
-            {errors.country_id && (
-              <p className="text-sm text-red-600 mt-1">
-                {errors.country_id.message}
-              </p>
-            )}
-          </div>
+            <Form.Control.Feedback type="invalid">
+              {errors.country_id?.message}
+            </Form.Control.Feedback>
+          </Form.Group>
 
-          <button
+
+          <Button
             type="submit"
+            variant="primary"
+            className="w-100"
             disabled={
               isSubmitting ||
+              countriesLoading ||
               successMessage !== null
             }
-            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold disabled:opacity-50"
           >
             {isSubmitting
-              ? "Creating account..."
-              : "Create Account"}
-          </button>
+              ? "Creating..."
+              : "Register"}
+          </Button>
 
-        </form>
+        </Form>
 
-        <p className="text-center mt-6 text-sm text-gray-600">
+
+        <p className="text-center mt-4 mb-0 small">
           Already have an account?{" "}
-          <Link
-            to="/login"
-            className="text-blue-600 font-medium"
-          >
+
+          <Link to="/login">
             Login
           </Link>
         </p>
 
       </div>
-    </div>
+    </Container>
   );
 };
 
-export default Register;
+
+export default Registration;
 
 
 
-//verify registration 
+
+
+
+
+
 
 import { useState } from "react";
-
 import {
   useLocation,
   useNavigate,
@@ -354,15 +510,23 @@ import {
   zodResolver,
 } from "@hookform/resolvers/zod";
 
-import { z } from "zod";
+import {
+  z,
+} from "zod";
 
 import axios from "axios";
+
+import Form from "react-bootstrap/Form";
+import Button from "react-bootstrap/Button";
+import Container from "react-bootstrap/Container";
+import Alert from "react-bootstrap/Alert";
 
 import api from "@/api/client";
 
 import type {
-  VerifyRegistrationResponse,
-} from "@/types/user/register";
+  VerifyLoginResponse,
+} from "@/types/user";
+
 
 const schema = z.object({
   otp_code: z
@@ -377,28 +541,35 @@ const schema = z.object({
     ),
 });
 
+
 type FormData = z.infer<typeof schema>;
 
-interface RegistrationVerificationState {
-  email?: string;
-  reg_token?: string;
-}
 
-const VerifyRegistration = () => {
+const RegisterVerify = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const state =
-    (location.state || {}) as RegistrationVerificationState;
 
-  const email = state.email;
-  const regToken = state.reg_token;
+  const {
+    email,
+    reg_token,
+  } = (location.state || {}) as {
+    email?: string;
+    reg_token?: string;
+  };
 
-  const [serverError, setServerError] =
-    useState<string | null>(null);
 
-  const [successMessage, setSuccessMessage] =
-    useState<string | null>(null);
+  const [
+    serverError,
+    setServerError,
+  ] = useState<string | null>(null);
+
+
+  const [
+    successMessage,
+    setSuccessMessage,
+  ] = useState<string | null>(null);
+
 
   const {
     register,
@@ -411,10 +582,12 @@ const VerifyRegistration = () => {
     resolver: zodResolver(schema),
   });
 
+
   /*
-   * Prevent direct access without registration flow.
+   * User arrived here without
+   * registration session data.
    */
-  if (!email || !regToken) {
+  if (!email || !reg_token) {
     navigate("/register", {
       replace: true,
     });
@@ -422,98 +595,97 @@ const VerifyRegistration = () => {
     return null;
   }
 
+
   const onSubmit = async (data: FormData) => {
     setServerError(null);
     setSuccessMessage(null);
 
     try {
+
       const response =
-        await api.post<VerifyRegistrationResponse>(
+        await api.post(
           "/register/verify",
           {
             email,
-            account_token: regToken,
+            account_token: reg_token,
             otp_code: data.otp_code,
           }
         );
 
-      setSuccessMessage(
-        "Account verified successfully."
-      );
 
       /*
-       * Account has now been verified.
-       * Send the user to login rather than
-       * automatically creating authentication
-       * cookies.
+       * Registration verification
+       * normally returns ReadUser.
+       *
+       * We don't need the returned user
+       * here because registration has
+       * not created an authentication
+       * session.
        */
+      setSuccessMessage(
+        response.data?.message ||
+          "Account verified successfully."
+      );
+
+
       window.setTimeout(() => {
         navigate("/login", {
           replace: true,
           state: {
-            email:
-              response.data.email || email,
+            email,
           },
         });
-      }, 1200);
+      }, 1500);
+
 
     } catch (error: unknown) {
+
       if (axios.isAxiosError(error)) {
-        const status =
-          error.response?.status;
 
         const detail =
           error.response?.data?.detail;
 
-        const message =
-          typeof detail === "string"
-            ? detail
-            : "Verification failed.";
 
         /*
-         * Invalid OTP.
+         * FastAPI validation error.
          */
-        if (status === 401) {
-          setServerError(message);
-          return;
-        }
+        if (
+          error.response?.status === 422 &&
+          Array.isArray(detail)
+        ) {
 
-        /*
-         * Session expired or invalid.
-         */
-        if (status === 400) {
-          setServerError(message);
+          const firstError =
+            detail[0];
 
-          window.setTimeout(() => {
-            navigate("/register", {
-              replace: true,
-            });
-          }, 2000);
+          const message =
+            firstError?.msg;
+
+          setServerError(
+            typeof message === "string"
+              ? message
+              : "Invalid verification data."
+          );
 
           return;
         }
 
+
         /*
-         * Already verified.
+         * HTTPException detail.
          */
-        if (status === 409) {
-          setServerError(message);
-
-          window.setTimeout(() => {
-            navigate("/login", {
-              replace: true,
-            });
-          }, 2000);
-
+        if (typeof detail === "string") {
+          setServerError(detail);
           return;
         }
 
-        /*
-         * Any other backend error.
-         */
-        setServerError(message);
+
+        setServerError(
+          "Verification failed. Please try again."
+        );
+
         return;
       }
+
 
       setServerError(
         "An unexpected error occurred."
@@ -521,105 +693,119 @@ const VerifyRegistration = () => {
     }
   };
 
-  return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8 text-center">
 
-        <h1 className="text-2xl font-bold mb-2">
+  return (
+    <Container
+      className="py-5"
+      style={{ maxWidth: 480 }}
+    >
+      <div className="bg-white p-4 rounded shadow-sm text-center">
+
+        <h1 className="h3 mb-2">
           Verify Your Account
         </h1>
 
-        <p className="text-gray-600 mb-6">
+        <p className="text-muted mb-4">
           We sent a 6-digit verification code to
           <br />
           <strong>{email}</strong>
         </p>
 
+
         {successMessage && (
-          <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg">
+          <Alert variant="success">
             {successMessage}
 
-            <p className="text-sm mt-1">
+            <div className="small mt-1">
               Redirecting to login...
-            </p>
-          </div>
+            </div>
+          </Alert>
         )}
+
 
         {serverError && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg">
+          <Alert variant="danger">
             {serverError}
-          </div>
+          </Alert>
         )}
 
-        <form
+
+        <Form
           onSubmit={handleSubmit(onSubmit)}
-          className="space-y-5"
         >
 
-          <div>
-            <label
-              htmlFor="otp_code"
-              className="sr-only"
-            >
-              Verification code
-            </label>
+          <Form.Group
+            className="mb-4"
+            controlId="otp_code"
+          >
 
-            <input
-              id="otp_code"
+            <Form.Label>
+              Verification Code
+            </Form.Label>
+
+            <Form.Control
               type="text"
               inputMode="numeric"
               autoComplete="one-time-code"
               maxLength={6}
               autoFocus
               placeholder="000000"
+              className="text-center fs-3"
+              isInvalid={!!errors.otp_code}
               {...register("otp_code")}
-              className={`w-full px-4 py-4 text-center text-3xl tracking-widest font-mono border rounded-lg ${
-                errors.otp_code
-                  ? "border-red-500"
-                  : "border-gray-300"
-              }`}
             />
 
-            {errors.otp_code && (
-              <p className="text-sm text-red-600 mt-2">
-                {errors.otp_code.message}
-              </p>
-            )}
-          </div>
+            <Form.Control.Feedback type="invalid">
+              {errors.otp_code?.message}
+            </Form.Control.Feedback>
 
-          <button
+          </Form.Group>
+
+
+          <Button
             type="submit"
+            variant="primary"
+            className="w-100"
             disabled={
               isSubmitting ||
               successMessage !== null
             }
-            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold disabled:opacity-50"
           >
             {isSubmitting
               ? "Verifying..."
               : "Verify Account"}
-          </button>
+          </Button>
 
-        </form>
+        </Form>
 
-        <button
-          type="button"
-          disabled={isSubmitting}
-          onClick={() =>
-            navigate("/register", {
-              replace: true,
-            })
-          }
-          className="mt-4 text-sm text-blue-600 hover:underline"
-        >
-          Back to registration
-        </button>
+
+        <div className="mt-4 small">
+          <Button
+            variant="link"
+            onClick={() =>
+              navigate("/register")
+            }
+          >
+            Back to registration
+          </Button>
+        </div>
 
       </div>
-    </div>
+    </Container>
   );
 };
 
-export default VerifyRegistration;
 
-          
+export default RegisterVerify;
+
+
+
+
+
+
+
+
+
+
+
+
