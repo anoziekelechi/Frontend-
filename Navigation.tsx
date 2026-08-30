@@ -1,3 +1,41 @@
+
+// src/routes/UserRoute.tsx
+
+import { Navigate, useLocation } from "react-router-dom";
+import Container from "react-bootstrap/Container";
+import { useAuth } from "@/context/AuthContext";
+
+interface UserRouteProps {
+  children: React.ReactNode;
+}
+
+const UserRoute = ({ children }: UserRouteProps) => {
+  const { user, isLoading } = useAuth();
+  const location = useLocation();
+
+  if (isLoading) {
+    return (
+      <Container className="py-5 text-center">
+        <p className="text-muted">Loading...</p>
+      </Container>
+    );
+  }
+
+  if (!user) {
+    return (
+      <Navigate
+        to="/login"
+        replace
+        state={{ from: location }}
+      />
+    );
+  }
+
+  return <>{children}</>;
+};
+
+export default UserRoute;
+
 // 
 // src/base/Navigation.tsx
 
