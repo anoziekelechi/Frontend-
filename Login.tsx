@@ -1,40 +1,82 @@
 
 
-
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
+
+import {
+  useForm,
+} from "react-hook-form";
+
+import {
+  zodResolver,
+} from "@hookform/resolvers/zod";
+
+import {
+  z,
+} from "zod";
+
+import {
+  Link,
+  useNavigate,
+} from "react-router-dom";
+
 import axios from "axios";
 
+import Form from "react-bootstrap/Form";
+import Button from "react-bootstrap/Button";
+import Container from "react-bootstrap/Container";
+import Alert from "react-bootstrap/Alert";
+
 import api from "@/api/client";
-import { useAuth } from "@/context/AuthContext";
-import type { LoginResponse } from "@/types/user";
+
+import {
+  useAuth,
+} from "@/context/AuthContext";
+
+import type {
+  LoginResponse,
+} from "@/types/user";
+
 
 const schema = z.object({
   email: z
     .string()
     .trim()
-    .email("Please enter a valid email address"),
+    .email(
+      "Please enter a valid email address"
+    ),
 
   password: z
     .string()
-    .min(1, "Password is required"),
+    .min(
+      1,
+      "Password is required"
+    ),
 });
 
+
 type FormData = z.infer<typeof schema>;
+
 
 const Login = () => {
   const navigate = useNavigate();
 
-  const { user, isLoading: authLoading } = useAuth();
+  const {
+    user,
+    isLoading: authLoading,
+  } = useAuth();
 
-  const [serverError, setServerError] =
-    useState<string | null>(null);
 
-  const [successMessage, setSuccessMessage] =
-    useState<string | null>(null);
+  const [
+    serverError,
+    setServerError,
+  ] = useState<string | null>(null);
+
+
+  const [
+    successMessage,
+    setSuccessMessage,
+  ] = useState<string | null>(null);
+
 
   const {
     register,
@@ -43,293 +85,410 @@ const Login = () => {
       errors,
       isSubmitting,
     },
+    setError,
   } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: {
-      email: "",
-      password: "",
-    },
   });
 
+
   /*
-   * Wait for AuthContext to determine whether
-   * the user is already authenticated.
+   * Wait for authentication state.
    */
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-gray-600 animate-pulse">
+      <Container className="py-5 text-center">
+        <p className="text-muted">
           Loading...
         </p>
-      </div>
+      </Container>
     );
   }
 
+
   /*
-   * Authenticated users should not see login.
+   * Already logged in.
    */
   if (user) {
-    navigate("/profile", { replace: true });
+    navigate("/profile", {
+      replace: true,
+    });
+
     return null;
   }
 
-  const onSubmit = async (data: FormData) => {
+
+  const onSubmit = async (
+    data: FormData
+  ) => {
+
     setServerError(null);
     setSuccessMessage(null);
 
+
     try {
+
       const response =
         await api.post<LoginResponse>(
           "/login",
           {
-            email: data.email.trim(),
+            email: data.email
+              .trim()
+              .toLowerCase(),
+
             password: data.password,
           }
         );
+
 
       setSuccessMessage(
         response.data.message ||
           "OTP sent to your email."
       );
 
-      /*
-       * Pass only the temporary login information
-       * needed by the OTP verification page.
-       */
+
       window.setTimeout(() => {
+
         navigate("/login/verify", {
           replace: true,
+
           state: {
             email: response.data.email,
-            login_token: response.data.login_token,
+
+            login_token:
+              response.data.login_token,
           },
         });
-      }, 1000);
+
+      }, 1200);
+
 
     } catch (error: unknown) {
-      if (axios.isAxiosError(error)) {
-        const status = error.response?.status;
-        const detail = error.response?.data?.detail;
 
-        const message =
-          typeof detail === "string"
-            ? detail
-            : "Login failed.";
+      if (axios.isAxiosError(error)) {
+
+        const status =
+          error.response?.status;
+
+        const detail =
+          error.response?.data?.detail;
+
 
         /*
-         * Already authenticated.
+         * FastAPI validation errors.
+         */
+        if (
+          status === 422 &&
+          Array.isArray(detail)
+        ) {
+
+          detail.forEach((item: unknown) => {
+
+            if (
+              typeof item !== "object" ||
+              item === null
+            ) {
+              return;
+            }
+
+            const validationError =
+              item as {
+                loc?: unknown[];
+                msg?: string;
+              };
+
+
+            const field =
+              validationError.loc?.[
+                validationError.loc.length - 1
+              ];
+
+
+            if (
+              (field === "email" ||
+                field === "password") &&
+              validationError.msg
+            ) {
+
+              setError(
+                field,
+                {
+                  type: "server",
+                  message:
+                    validationError.msg,
+                }
+              );
+            }
+
+          });
+
+          return;
+        }
+
+
+        /*
+         * Already logged in.
          */
         if (status === 403) {
-          setServerError(message);
+
+          setServerError(
+            typeof detail === "string"
+              ? detail
+              : "Already logged in."
+          );
+
 
           window.setTimeout(() => {
             navigate("/profile", {
               replace: true,
             });
-          }, 1500);
+          }, 2000);
 
           return;
         }
 
+
         /*
-         * Invalid email/password.
+         * Invalid credentials.
          */
         if (status === 401) {
-          setServerError(message);
+
+          setServerError(
+            typeof detail === "string"
+              ? detail
+              : "Invalid credentials."
+          );
+
           return;
         }
 
+
         /*
-         * Too many login attempts.
+         * Rate limit.
          */
         if (status === 429) {
-          setServerError(message);
+
+          setServerError(
+            typeof detail === "string"
+              ? detail
+              : "Too many login attempts. Please try again later."
+          );
+
           return;
         }
 
+
         /*
-         * Any other HTTPException returned by FastAPI.
+         * Other HTTPException.
          */
-        setServerError(message);
+        if (typeof detail === "string") {
+          setServerError(detail);
+          return;
+        }
+
+
+        setServerError(
+          "Login failed. Please try again."
+        );
+
         return;
       }
 
-      /*
-       * Non-Axios error.
-       */
+
       setServerError(
         "An unexpected error occurred."
       );
     }
   };
 
-  return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8">
 
-        <h1 className="text-2xl font-bold text-center mb-6">
+  return (
+    <Container
+      className="py-5"
+      style={{ maxWidth: 480 }}
+    >
+      <div className="bg-white p-4 rounded shadow-sm">
+
+        <h1 className="h3 text-center mb-4">
           Welcome Back
         </h1>
 
-        {/* Success */}
+
         {successMessage && (
-          <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-center">
+          <Alert
+            variant="success"
+            className="text-center"
+          >
             {successMessage}
 
-            <p className="text-sm mt-1">
-              Redirecting to OTP verification...
-            </p>
-          </div>
+            <div className="small mt-1">
+              Redirecting to verification...
+            </div>
+          </Alert>
         )}
 
-        {/* Error */}
+
         {serverError && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-center">
+          <Alert
+            variant="danger"
+            className="text-center"
+          >
             {serverError}
 
             {serverError
               .toLowerCase()
               .includes("already logged") && (
-              <p className="text-sm mt-1">
+              <div className="small mt-1">
                 Redirecting to profile...
-              </p>
+              </div>
             )}
-          </div>
+          </Alert>
         )}
 
-        <form
+
+        <Form
           onSubmit={handleSubmit(onSubmit)}
-          className="space-y-5"
         >
 
-          {/* Email */}
-          <div>
-            <label
-              htmlFor="email"
-              className="block text-sm font-medium mb-1"
-            >
-              Email
-            </label>
+          <Form.Group
+            className="mb-3"
+            controlId="email"
+          >
 
-            <input
-              id="email"
+            <Form.Label>
+              Email
+            </Form.Label>
+
+            <Form.Control
               type="email"
               autoComplete="email"
+              placeholder="Enter your email"
+              isInvalid={!!errors.email}
               {...register("email")}
-              className={`w-full px-4 py-3 border rounded-lg ${
-                errors.email
-                  ? "border-red-500"
-                  : "border-gray-300"
-              }`}
             />
 
-            {errors.email && (
-              <p className="text-sm text-red-600 mt-1">
-                {errors.email.message}
-              </p>
-            )}
-          </div>
+            <Form.Control.Feedback type="invalid">
+              {errors.email?.message}
+            </Form.Control.Feedback>
 
-          {/* Password */}
-          <div>
-            <label
-              htmlFor="password"
-              className="block text-sm font-medium mb-1"
-            >
+          </Form.Group>
+
+
+          <Form.Group
+            className="mb-4"
+            controlId="password"
+          >
+
+            <Form.Label>
               Password
-            </label>
+            </Form.Label>
 
-            <input
-              id="password"
+            <Form.Control
               type="password"
               autoComplete="current-password"
+              placeholder="Enter your password"
+              isInvalid={!!errors.password}
               {...register("password")}
-              className={`w-full px-4 py-3 border rounded-lg ${
-                errors.password
-                  ? "border-red-500"
-                  : "border-gray-300"
-              }`}
             />
 
-            {errors.password && (
-              <p className="text-sm text-red-600 mt-1">
-                {errors.password.message}
-              </p>
-            )}
-          </div>
+            <Form.Control.Feedback type="invalid">
+              {errors.password?.message}
+            </Form.Control.Feedback>
 
-          {/* Submit */}
-          <button
+          </Form.Group>
+
+
+          <Button
             type="submit"
+            variant="primary"
+            className="w-100"
             disabled={
               isSubmitting ||
               successMessage !== null
             }
-            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isSubmitting
               ? "Checking..."
               : "Continue"}
-          </button>
-        </form>
+          </Button>
 
-        <p className="text-center mt-6 text-sm text-gray-600">
-          No account?{" "}
-          <Link
-            to="/register"
-            className="text-blue-600 font-medium"
-          >
+        </Form>
+
+
+        <p className="text-center mt-4 mb-0">
+          Don't have an account?{" "}
+
+          <Link to="/register">
             Register
           </Link>
         </p>
 
       </div>
-    </div>
+    </Container>
   );
 };
+
 
 export default Login;
 
 
 
 
-
 import { useState } from "react";
+
 import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
 
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
+import {
+  useForm,
+} from "react-hook-form";
+
+import {
+  zodResolver,
+} from "@hookform/resolvers/zod";
+
+import {
+  z,
+} from "zod";
+
 import axios from "axios";
 
+import Form from "react-bootstrap/Form";
+import Button from "react-bootstrap/Button";
+import Container from "react-bootstrap/Container";
+import Alert from "react-bootstrap/Alert";
+
 import api from "@/api/client";
-import { useAuth } from "@/context/AuthContext";
+
+import {
+  useAuth,
+} from "@/context/AuthContext";
 
 import type {
   VerifyLoginResponse,
 } from "@/types/user";
 
+
 const schema = z.object({
   otp_code: z
     .string()
-    .length(6, "OTP must be exactly 6 digits")
+    .length(
+      6,
+      "OTP must be exactly 6 digits"
+    )
     .regex(
       /^\d{6}$/,
       "OTP must contain numbers only"
     ),
 });
 
+
 type FormData = z.infer<typeof schema>;
 
-interface LoginVerificationState {
-  email?: string;
-  login_token?: string;
-}
 
 const VerifyLogin = () => {
+
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -339,17 +498,27 @@ const VerifyLogin = () => {
     isLoading: authLoading,
   } = useAuth();
 
-  const state =
-    (location.state || {}) as LoginVerificationState;
 
-  const email = state.email;
-  const loginToken = state.login_token;
+  const {
+    email,
+    login_token,
+  } = (location.state || {}) as {
+    email?: string;
+    login_token?: string;
+  };
 
-  const [serverError, setServerError] =
-    useState<string | null>(null);
 
-  const [successMessage, setSuccessMessage] =
-    useState<string | null>(null);
+  const [
+    serverError,
+    setServerError,
+  ] = useState<string | null>(null);
+
+
+  const [
+    successMessage,
+    setSuccessMessage,
+  ] = useState<string | null>(null);
+
 
   const {
     register,
@@ -360,23 +529,22 @@ const VerifyLogin = () => {
     },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: {
-      otp_code: "",
-    },
   });
 
+
   /*
-   * Wait for AuthContext.
+   * Wait for authentication state.
    */
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-gray-600 animate-pulse">
+      <Container className="py-5 text-center">
+        <p className="text-muted">
           Loading...
         </p>
-      </div>
+      </Container>
     );
   }
+
 
   /*
    * Already authenticated.
@@ -389,11 +557,12 @@ const VerifyLogin = () => {
     return null;
   }
 
+
   /*
-   * User cannot directly visit this page without
-   * first completing /login.
+   * Verification page requires
+   * both values returned by login.
    */
-  if (!email || !loginToken) {
+  if (!email || !login_token) {
     navigate("/login", {
       replace: true,
     });
@@ -401,166 +570,258 @@ const VerifyLogin = () => {
     return null;
   }
 
-  const onSubmit = async (data: FormData) => {
+
+  const onSubmit = async (
+    data: FormData
+  ) => {
+
     setServerError(null);
     setSuccessMessage(null);
 
+
     try {
+
       const response =
         await api.post<VerifyLoginResponse>(
           "/login/verify",
           {
             email,
-            account_token: loginToken,
+            account_token: login_token,
             otp_code: data.otp_code,
           }
         );
+
 
       const {
         status,
         message,
       } = response.data;
 
+
       /*
        * Disabled account.
        *
-       * Your backend intentionally allows the user
-       * to complete OTP verification before checking
-       * the account status.
+       * Your backend intentionally
+       * allows the OTP verification
+       * to complete but does not issue
+       * authentication cookies.
        */
       if (status === "disabled") {
+
         setServerError(message);
 
         window.setTimeout(() => {
+
           navigate("/contact-admin", {
             replace: true,
+
             state: {
               email:
-                response.data.email || email,
+                response.data.email ||
+                email,
             },
           });
+
         }, 2000);
 
         return;
       }
+
 
       /*
        * Unverified account.
        */
       if (status === "unverified") {
+
         setServerError(message);
 
         window.setTimeout(() => {
+
           navigate(
             "/resend-verification",
             {
               replace: true,
+
               state: {
                 email:
                   response.data.email ||
                   email,
 
-                login_token: loginToken,
+                login_token,
               },
             }
           );
+
         }, 2000);
 
         return;
       }
 
+
       /*
-       * Successful login.
+       * Successful authentication.
        *
-       * Backend has already created:
-       * - access_token cookie
-       * - refresh_token cookie
-       * - csrf_token cookie
+       * Backend has already set:
+       *
+       * access_token
+       * refresh_token
+       * csrf_token
+       *
+       * as cookies.
        */
       if (status === "success") {
+
         setSuccessMessage(
-          message || "Login successful."
+          message ||
+            "Login successful."
         );
 
+
         /*
-         * Refresh AuthContext so the application
-         * knows that the user is now authenticated.
+         * Refresh AuthContext so the
+         * application loads the newly
+         * authenticated user.
          */
         await login();
 
+
         window.setTimeout(() => {
+
           navigate("/profile", {
             replace: true,
           });
+
         }, 1000);
 
         return;
       }
 
+
       /*
-       * Defensive fallback.
+       * Defensive fallback if backend
+       * ever returns an unknown status.
        */
       setServerError(
         "Unexpected login response."
       );
 
+
     } catch (error: unknown) {
+
       if (axios.isAxiosError(error)) {
+
         const status =
           error.response?.status;
 
         const detail =
           error.response?.data?.detail;
 
-        const message =
-          typeof detail === "string"
-            ? detail
-            : "Verification failed.";
 
         /*
-         * Already logged in.
+         * FastAPI/Pydantic validation.
+         */
+        if (
+          status === 422 &&
+          Array.isArray(detail)
+        ) {
+
+          const firstError =
+            detail[0];
+
+          const message =
+            firstError?.msg;
+
+
+          setServerError(
+            typeof message === "string"
+              ? message
+              : "Invalid verification data."
+          );
+
+          return;
+        }
+
+
+        /*
+         * Already authenticated.
          */
         if (status === 403) {
-          setServerError(message);
+
+          setServerError(
+            typeof detail === "string"
+              ? detail
+              : "Already logged in."
+          );
+
 
           window.setTimeout(() => {
+
             navigate("/profile", {
               replace: true,
             });
-          }, 1500);
 
-          return;
-        }
-
-        /*
-         * Invalid OTP.
-         */
-        if (status === 401) {
-          setServerError(message);
-          return;
-        }
-
-        /*
-         * Login session expired.
-         */
-        if (status === 400) {
-          setServerError(message);
-
-          window.setTimeout(() => {
-            navigate("/login", {
-              replace: true,
-            });
           }, 2000);
 
           return;
         }
 
+
         /*
-         * Any other FastAPI HTTPException.
+         * Invalid OTP.
          */
-        setServerError(message);
+        if (status === 401) {
+
+          setServerError(
+            typeof detail === "string"
+              ? detail
+              : "OTP expired or invalid."
+          );
+
+          return;
+        }
+
+
+        /*
+         * Expired/invalid login token.
+         */
+        if (status === 400) {
+
+          setServerError(
+            typeof detail === "string"
+              ? detail
+              : "Session expired or invalid."
+          );
+
+
+          window.setTimeout(() => {
+
+            navigate("/login", {
+              replace: true,
+            });
+
+          }, 2000);
+
+          return;
+        }
+
+
+        /*
+         * Any other HTTPException.
+         */
+        if (typeof detail === "string") {
+
+          setServerError(detail);
+          return;
+        }
+
+
+        setServerError(
+          "Login verification failed."
+        );
+
         return;
       }
+
 
       setServerError(
         "An unexpected error occurred."
@@ -568,111 +829,117 @@ const VerifyLogin = () => {
     }
   };
 
-  return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8 text-center">
 
-        <h1 className="text-2xl font-bold mb-2">
+  return (
+    <Container
+      className="py-5"
+      style={{ maxWidth: 480 }}
+    >
+      <div className="bg-white p-4 rounded shadow-sm text-center">
+
+        <h1 className="h3 mb-2">
           Enter Login Code
         </h1>
 
-        <p className="text-gray-600 mb-6">
-          We sent a 6-digit verification code to
-          <br />
 
+        <p className="text-muted mb-4">
+          We sent a 6-digit code to
+          <br />
           <strong>{email}</strong>
         </p>
 
-        {/* Success */}
+
         {successMessage && (
-          <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg">
+          <Alert variant="success">
             {successMessage}
 
-            <p className="text-sm mt-1">
+            <div className="small mt-1">
               Redirecting to profile...
-            </p>
-          </div>
+            </div>
+          </Alert>
         )}
 
-        {/* Error */}
+
         {serverError && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg">
+          <Alert variant="danger">
             {serverError}
 
-            <p className="text-sm mt-1">
-              Redirecting...
-            </p>
-          </div>
+            <div className="small mt-1">
+              Please follow the instructions above.
+            </div>
+          </Alert>
         )}
 
-        <form
+
+        <Form
           onSubmit={handleSubmit(onSubmit)}
-          className="space-y-5"
         >
 
-          <div>
-            <label
-              htmlFor="otp_code"
-              className="sr-only"
-            >
-              Verification code
-            </label>
+          <Form.Group
+            className="mb-4"
+            controlId="otp_code"
+          >
 
-            <input
-              id="otp_code"
+            <Form.Label>
+              Login Code
+            </Form.Label>
+
+            <Form.Control
               type="text"
               inputMode="numeric"
               autoComplete="one-time-code"
               maxLength={6}
               autoFocus
               placeholder="000000"
+              className="text-center fs-3"
+              isInvalid={!!errors.otp_code}
               {...register("otp_code")}
-              className={`w-full px-4 py-4 text-center text-3xl tracking-widest font-mono border rounded-lg ${
-                errors.otp_code
-                  ? "border-red-500"
-                  : "border-gray-300"
-              }`}
             />
 
-            {errors.otp_code && (
-              <p className="text-sm text-red-600 mt-2">
-                {errors.otp_code.message}
-              </p>
-            )}
-          </div>
+            <Form.Control.Feedback type="invalid">
+              {errors.otp_code?.message}
+            </Form.Control.Feedback>
 
-          <button
+          </Form.Group>
+
+
+          <Button
             type="submit"
+            variant="primary"
+            className="w-100"
             disabled={
               isSubmitting ||
               successMessage !== null
             }
-            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isSubmitting
               ? "Verifying..."
               : "Complete Login"}
-          </button>
+          </Button>
 
-        </form>
+        </Form>
 
-        <button
-          type="button"
-          disabled={isSubmitting}
-          onClick={() =>
-            navigate("/login", {
-              replace: true,
-            })
-          }
-          className="mt-4 text-sm text-blue-600 hover:underline"
-        >
-          Back to login
-        </button>
+
+        <div className="mt-4">
+
+          <Button
+            variant="link"
+            onClick={() =>
+              navigate("/login", {
+                replace: true,
+              })
+            }
+          >
+            Back to Login
+          </Button>
+
+        </div>
 
       </div>
-    </div>
+    </Container>
   );
 };
+
 
 export default VerifyLogin;
 
