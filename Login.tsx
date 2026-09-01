@@ -433,25 +433,13 @@ export default Login;
 
 
 
+// src/pages/users/VerifyLogin.tsx
+
 import { useState } from "react";
-
-import {
-  useLocation,
-  useNavigate,
-} from "react-router-dom";
-
-import {
-  useForm,
-} from "react-hook-form";
-
-import {
-  zodResolver,
-} from "@hookform/resolvers/zod";
-
-import {
-  z,
-} from "zod";
-
+import { useLocation, useNavigate } from "react-router-dom";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import axios from "axios";
 
 import Form from "react-bootstrap/Form";
@@ -460,35 +448,30 @@ import Container from "react-bootstrap/Container";
 import Alert from "react-bootstrap/Alert";
 
 import api from "@/api/client";
+import { useAuth } from "@/context/AuthContext";
 
-import {
-  useAuth,
-} from "@/context/AuthContext";
+import type { VerifyLoginResponse } from "@/types/user";
 
-import type {
-  VerifyLoginResponse,
-} from "@/types/user";
 
+// =============================================================
+// VALIDATION
+// =============================================================
 
 const schema = z.object({
   otp_code: z
     .string()
-    .length(
-      6,
-      "OTP must be exactly 6 digits"
-    )
-    .regex(
-      /^\d{6}$/,
-      "OTP must contain numbers only"
-    ),
+    .length(6, "OTP must be exactly 6 digits")
+    .regex(/^\d{6}$/, "OTP must contain numbers only"),
 });
-
 
 type FormData = z.infer<typeof schema>;
 
 
-const VerifyLogin = () => {
+// =============================================================
+// COMPONENT
+// =============================================================
 
+const VerifyLogin = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -498,6 +481,16 @@ const VerifyLogin = () => {
     isLoading: authLoading,
   } = useAuth();
 
+  const [serverError, setServerError] =
+    useState<string | null>(null);
+
+  const [successMessage, setSuccessMessage] =
+    useState<string | null>(null);
+
+
+  // ===========================================================
+  // GET LOGIN DATA FROM ROUTER STATE
+  // ===========================================================
 
   const {
     email,
@@ -508,17 +501,9 @@ const VerifyLogin = () => {
   };
 
 
-  const [
-    serverError,
-    setServerError,
-  ] = useState<string | null>(null);
-
-
-  const [
-    successMessage,
-    setSuccessMessage,
-  ] = useState<string | null>(null);
-
+  // ===========================================================
+  // FORM
+  // ===========================================================
 
   const {
     register,
@@ -532,9 +517,10 @@ const VerifyLogin = () => {
   });
 
 
-  /*
-   * Wait for authentication state.
-   */
+  // ===========================================================
+  // AUTH LOADING
+  // ===========================================================
+
   if (authLoading) {
     return (
       <Container className="py-5 text-center">
@@ -546,40 +532,47 @@ const VerifyLogin = () => {
   }
 
 
-  /*
-   * Already authenticated.
-   */
+  // ===========================================================
+  // ALREADY LOGGED IN
+  // ===========================================================
+
   if (user) {
-    navigate("/profile", {
-      replace: true,
-    });
+    navigate(
+      "/profile",
+      { replace: true }
+    );
 
     return null;
   }
 
 
-  /*
-   * Verification page requires
-   * both values returned by login.
-   */
+  // ===========================================================
+  // MISSING LOGIN SESSION
+  // ===========================================================
+
   if (!email || !login_token) {
-    navigate("/login", {
-      replace: true,
-    });
+    navigate(
+      "/login",
+      { replace: true }
+    );
 
     return null;
   }
 
 
-  const onSubmit = async (
-    data: FormData
-  ) => {
+  // ===========================================================
+  // SUBMIT OTP
+  // ===========================================================
 
+  const onSubmit = async (data: FormData) => {
     setServerError(null);
     setSuccessMessage(null);
 
-
     try {
+
+      // -------------------------------------------------------
+      // Send OTP to backend
+      // -------------------------------------------------------
 
       const response =
         await api.post<VerifyLoginResponse>(
@@ -598,178 +591,207 @@ const VerifyLogin = () => {
       } = response.data;
 
 
-      /*
-       * Disabled account.
-       *
-       * Your backend intentionally
-       * allows the OTP verification
-       * to complete but does not issue
-       * authentication cookies.
-       */
+      // =======================================================
+      // DISABLED ACCOUNT
+      // =======================================================
+      //
+      // Backend does NOT create authentication cookies.
+      //
+      // Redirect user to contact-admin.
+      // =======================================================
+
       if (status === "disabled") {
 
         setServerError(message);
 
         window.setTimeout(() => {
-
-          navigate("/contact-admin", {
-            replace: true,
-
-            state: {
-              email:
-                response.data.email ||
-                email,
-            },
-          });
-
+          navigate(
+            "/contact-admin",
+            {
+              replace: true,
+              state: {
+                email:
+                  response.data.email ??
+                  email,
+              },
+            }
+          );
         }, 2000);
 
         return;
       }
 
 
-      /*
-       * Unverified account.
-       */
+      // =======================================================
+      // UNVERIFIED ACCOUNT
+      // =======================================================
+      //
+      // Backend does NOT create authentication cookies.
+      //
+      // Redirect user to verification page.
+      // =======================================================
+
       if (status === "unverified") {
 
         setServerError(message);
 
         window.setTimeout(() => {
-
           navigate(
             "/resend-verification",
             {
               replace: true,
-
               state: {
                 email:
-                  response.data.email ||
+                  response.data.email ??
                   email,
 
                 login_token,
               },
             }
           );
-
         }, 2000);
 
         return;
       }
 
 
-      /*
-       * Successful authentication.
-       *
-       * Backend has already set:
-       *
-       * access_token
-       * refresh_token
-       * csrf_token
-       *
-       * as cookies.
-       */
+      // =======================================================
+      // SUCCESS
+      // =======================================================
+      //
+      // At this point:
+      //
+      // - OTP was valid
+      // - account is verified
+      // - account is active
+      // - backend created access_token
+      // - backend created refresh_token
+      // - backend created CSRF token
+      //
+      // Cookies are already stored by the browser.
+      // =======================================================
+
       if (status === "success") {
 
         setSuccessMessage(
           message ||
-            "Login successful."
+          "Login successful"
         );
 
 
-        /*
-         * Refresh AuthContext so the
-         * application loads the newly
-         * authenticated user.
-         */
+        // Refresh AuthContext so it fetches the
+        // authenticated user using the new cookie.
+
         await login();
 
 
         window.setTimeout(() => {
-
-          navigate("/profile", {
-            replace: true,
-          });
-
+          navigate(
+            "/profile",
+            { replace: true }
+          );
         }, 1000);
 
         return;
       }
 
 
-      /*
-       * Defensive fallback if backend
-       * ever returns an unknown status.
-       */
-      setServerError(
-        "Unexpected login response."
-      );
+      // =======================================================
+      // UNEXPECTED SUCCESS RESPONSE
+      // =======================================================
 
+      setServerError(
+        "Unexpected response from server."
+      );
 
     } catch (error: unknown) {
 
+      // =======================================================
+      // AXIOS ERROR
+      // =======================================================
+
       if (axios.isAxiosError(error)) {
 
-        const status =
+        const statusCode =
           error.response?.status;
 
         const detail =
           error.response?.data?.detail;
 
 
-        /*
-         * FastAPI/Pydantic validation.
-         */
+        // -----------------------------------------------------
+        // Pydantic / FastAPI validation errors
+        // -----------------------------------------------------
+
         if (
-          status === 422 &&
+          statusCode === 422 &&
           Array.isArray(detail)
         ) {
 
-          const firstError =
-            detail[0];
+          const messages = detail
+            .map((item: unknown) => {
 
-          const message =
-            firstError?.msg;
+              if (
+                typeof item === "object" &&
+                item !== null &&
+                "msg" in item
+              ) {
+                return String(
+                  (item as { msg: unknown }).msg
+                );
+              }
+
+              return null;
+            })
+            .filter(
+              (message): message is string =>
+                message !== null
+            );
 
 
           setServerError(
-            typeof message === "string"
-              ? message
-              : "Invalid verification data."
+            messages.length > 0
+              ? messages.join(", ")
+              : "Invalid input."
           );
 
           return;
         }
 
 
-        /*
-         * Already authenticated.
-         */
-        if (status === 403) {
+        // -----------------------------------------------------
+        // Session expired / invalid
+        // -----------------------------------------------------
+
+        if (statusCode === 400) {
 
           setServerError(
             typeof detail === "string"
               ? detail
-              : "Already logged in."
+              : "Session expired or invalid."
           );
 
 
           window.setTimeout(() => {
-
-            navigate("/profile", {
-              replace: true,
-            });
-
+            navigate(
+              "/login",
+              { replace: true }
+            );
           }, 2000);
 
           return;
         }
 
 
-        /*
-         * Invalid OTP.
-         */
-        if (status === 401) {
+        // -----------------------------------------------------
+        // Invalid / expired OTP
+        // -----------------------------------------------------
+        //
+        // IMPORTANT:
+        // Stay on this page so user can enter another OTP.
+        // -----------------------------------------------------
+
+        if (statusCode === 401) {
 
           setServerError(
             typeof detail === "string"
@@ -781,47 +803,47 @@ const VerifyLogin = () => {
         }
 
 
-        /*
-         * Expired/invalid login token.
-         */
-        if (status === 400) {
+        // -----------------------------------------------------
+        // Already logged in
+        // -----------------------------------------------------
+
+        if (statusCode === 403) {
 
           setServerError(
             typeof detail === "string"
               ? detail
-              : "Session expired or invalid."
+              : "Already logged in."
           );
 
 
           window.setTimeout(() => {
-
-            navigate("/login", {
-              replace: true,
-            });
-
+            navigate(
+              "/profile",
+              { replace: true }
+            );
           }, 2000);
 
           return;
         }
 
 
-        /*
-         * Any other HTTPException.
-         */
-        if (typeof detail === "string") {
-
-          setServerError(detail);
-          return;
-        }
-
+        // -----------------------------------------------------
+        // Any other backend error
+        // -----------------------------------------------------
 
         setServerError(
-          "Login verification failed."
+          typeof detail === "string"
+            ? detail
+            : "Verification failed."
         );
 
         return;
       }
 
+
+      // =======================================================
+      // NON-AXIOS ERROR
+      // =======================================================
 
       setServerError(
         "An unexpected error occurred."
@@ -830,50 +852,99 @@ const VerifyLogin = () => {
   };
 
 
+  // ===========================================================
+  // UI
+  // ===========================================================
+
   return (
     <Container
       className="py-5"
       style={{ maxWidth: 480 }}
     >
-      <div className="bg-white p-4 rounded shadow-sm text-center">
+      <div className="bg-white p-4 rounded shadow-sm">
 
-        <h1 className="h3 mb-2">
-          Enter Login Code
+        {/* =====================================================
+            TITLE
+        ===================================================== */}
+
+        <h1 className="h3 text-center mb-2">
+          Verify Login
         </h1>
 
 
-        <p className="text-muted mb-4">
-          We sent a 6-digit code to
+        {/* =====================================================
+            EMAIL INFORMATION
+        ===================================================== */}
+
+        <p className="text-muted text-center mb-4">
+          We sent a 6-digit verification code to:
           <br />
-          <strong>{email}</strong>
+
+          <strong>
+            {email}
+          </strong>
         </p>
 
 
+        {/* =====================================================
+            SUCCESS
+        ===================================================== */}
+
         {successMessage && (
-          <Alert variant="success">
+          <Alert
+            variant="success"
+            className="text-center"
+          >
             {successMessage}
 
             <div className="small mt-1">
-              Redirecting to profile...
+              Redirecting to your profile...
             </div>
           </Alert>
         )}
 
+
+        {/* =====================================================
+            SERVER ERROR
+        ===================================================== */}
 
         {serverError && (
-          <Alert variant="danger">
+          <Alert
+            variant="danger"
+            className="text-center"
+          >
             {serverError}
 
-            <div className="small mt-1">
-              Please follow the instructions above.
-            </div>
+            {serverError
+              .toLowerCase()
+              .includes("suspended") && (
+              <div className="small mt-1">
+                Redirecting to contact admin...
+              </div>
+            )}
+
+            {serverError
+              .toLowerCase()
+              .includes("not verified") && (
+              <div className="small mt-1">
+                Redirecting to verification...
+              </div>
+            )}
           </Alert>
         )}
 
+
+        {/* =====================================================
+            FORM
+        ===================================================== */}
 
         <Form
           onSubmit={handleSubmit(onSubmit)}
         >
+
+          {/* ===================================================
+              OTP
+          =================================================== */}
 
           <Form.Group
             className="mb-4"
@@ -881,18 +952,20 @@ const VerifyLogin = () => {
           >
 
             <Form.Label>
-              Login Code
+              Verification Code
             </Form.Label>
 
             <Form.Control
               type="text"
               inputMode="numeric"
               autoComplete="one-time-code"
-              maxLength={6}
               autoFocus
+              maxLength={6}
               placeholder="000000"
               className="text-center fs-3"
-              isInvalid={!!errors.otp_code}
+              isInvalid={
+                !!errors.otp_code
+              }
               {...register("otp_code")}
             />
 
@@ -900,8 +973,16 @@ const VerifyLogin = () => {
               {errors.otp_code?.message}
             </Form.Control.Feedback>
 
+            <Form.Text className="text-muted">
+              Enter the 6-digit code sent to your email.
+            </Form.Text>
+
           </Form.Group>
 
+
+          {/* ===================================================
+              SUBMIT
+          =================================================== */}
 
           <Button
             type="submit"
@@ -914,20 +995,30 @@ const VerifyLogin = () => {
           >
             {isSubmitting
               ? "Verifying..."
-              : "Complete Login"}
+              : "Verify & Login"}
           </Button>
 
         </Form>
 
 
-        <div className="mt-4">
+        {/* =====================================================
+            BACK TO LOGIN
+        ===================================================== */}
+
+        <div className="text-center mt-4">
 
           <Button
             variant="link"
+            className="text-decoration-none"
+            disabled={
+              isSubmitting ||
+              successMessage !== null
+            }
             onClick={() =>
-              navigate("/login", {
-                replace: true,
-              })
+              navigate(
+                "/login",
+                { replace: true }
+              )
             }
           >
             Back to Login
@@ -942,6 +1033,5 @@ const VerifyLogin = () => {
 
 
 export default VerifyLogin;
-
 
 
