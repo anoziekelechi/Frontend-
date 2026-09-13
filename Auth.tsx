@@ -1,3 +1,184 @@
+// deepest
+// src/context/AuthContext.tsx
+
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+} from "react";
+
+import type { ReactNode } from "react";
+
+import api from "@/api/client";
+import type { UserProfile, ReadUser } from "@/types";
+
+
+// ============================================================
+// AUTH CONTEXT TYPE
+// ============================================================
+
+interface AuthContextType {
+  /** Current authenticated user, or null if unauthenticated. */
+  user: ReadUser | null;
+
+  /** True while the initial auth check or refresh is in flight. */
+  isLoading: boolean;
+
+  /** Fetch the authenticated user (call after login cookies are set). */
+  login: () => Promise<void>;
+
+  /** Clear session and redirect to home. */
+  logout: () => Promise<void>;
+
+  /** Optional banner message after logout. */
+  logoutMessage: string | null;
+
+  /**
+   * Re-fetch the current user from /auth/profile.
+   * Use after mutations that change user state (name, avatar, etc).
+   */
+  refreshUser: () => Promise<void>;
+
+  /**
+   * Optimistically replace the current user with a fresh server
+   * payload (e.g. from PATCH /me/names response).
+   *
+   * Prefer `refreshUser` when you don't already have a fresh
+   * ReadUser object from a server response.
+   */
+  setUser: (user: ReadUser) => void;
+}
+
+
+// ============================================================
+// CONTEXT
+// ============================================================
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+
+// ============================================================
+// PROVIDER
+// ============================================================
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUserState] = useState<ReadUser | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [logoutMessage, setLogoutMessage] = useState<string | null>(null);
+
+  // ==========================================================
+  // FETCH CURRENT USER
+  // ==========================================================
+
+  const fetchUser = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      // Backend returns the auth-safe shape; alias as ReadUser.
+      const response = await api.get<ReadUser>("/auth/profile");
+      setUserState(response.data);
+    } catch {
+      setUserState(null);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // ==========================================================
+  // INITIAL AUTH CHECK
+  // ==========================================================
+
+  useEffect(() => {
+    fetchUser();
+  }, [fetchUser]);
+
+  // ==========================================================
+  // LOGIN
+  // ==========================================================
+
+  const login = useCallback(async (): Promise<void> => {
+    await fetchUser();
+  }, [fetchUser]);
+
+  // ==========================================================
+  // LOGOUT
+  // ==========================================================
+
+  const logout = useCallback(async (): Promise<void> => {
+    try {
+      const response = await api.post<{ message: string }>("/auth/logout");
+
+      setUserState(null);
+      setLogoutMessage(response.data.message);
+
+      window.setTimeout(() => {
+        setLogoutMessage(null);
+        window.location.href = "/";
+      }, 1500);
+    } catch {
+      console.warn("Logout failed");
+
+      setUserState(null);
+      window.location.href = "/";
+    }
+  }, []);
+
+  // ==========================================================
+  // REFRESH USER — re-fetches from backend
+  // ==========================================================
+
+  const refreshUser = useCallback(async (): Promise<void> => {
+    await fetchUser();
+  }, [fetchUser]);
+
+  // ==========================================================
+  // SET USER — optimistic replace
+  // ==========================================================
+
+  const setUser = useCallback((next: ReadUser): void => {
+    setUserState(next);
+  }, []);
+
+  // ==========================================================
+  // PROVIDER
+  // ==========================================================
+
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        isLoading,
+        login,
+        logout,
+        logoutMessage,
+        refreshUser,
+        setUser,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+
+// ============================================================
+// USE AUTH
+// ============================================================
+
+export function useAuth(): AuthContextType {
+  const context = useContext(AuthContext);
+
+  if (!context) {
+    throw new Error("useAuth must be used within AuthProvider");
+  }
+
+  return context;
+}
+
+
+
+
 // src/api/client.ts
 
 import axios, {
