@@ -1,6 +1,8 @@
 
 
 
+
+
 // src/pages/user/ChangeName.tsx
 
 import { useEffect, useRef, useState } from "react";
@@ -18,10 +20,43 @@ import Spinner from "react-bootstrap/Spinner";
 
 import api from "@/api/client";
 import { useAuth } from "@/context/AuthContext";
-import { changedFields } from "@/lib/form";
 
 import type { UpdateNames, UpdateNamesResponse } from "@/types";
 
+
+// =============================================================
+// HELPERS
+// =============================================================
+
+/**
+ * Return a payload containing only the string fields that differ
+ * from the previous values (trimmed before comparison).
+ *
+ * Used to avoid sending a no-op PATCH to the backend, which
+ * rejects empty/unchanged payloads with 400 "No changes were made".
+ */
+function changedStringFields<T extends Record<string, string | undefined>>(
+  next: T,
+  prev: Partial<T>
+): Partial<T> {
+  const out: Partial<T> = {};
+  (Object.keys(next) as (keyof T)[]).forEach((key) => {
+    const a = next[key];
+    const b = prev[key];
+    if (typeof a === "string") {
+      const trimmed = a.trim();
+      if (trimmed !== (b ?? "").trim()) {
+        out[key] = trimmed as T[keyof T];
+      }
+    }
+  });
+  return out;
+}
+
+
+// =============================================================
+// VALIDATION
+// =============================================================
 
 const schema = z.object({
   surname: z
@@ -39,6 +74,10 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>;
 
+
+// =============================================================
+// COMPONENT
+// =============================================================
 
 const ChangeName = () => {
   const navigate = useNavigate();
@@ -64,6 +103,9 @@ const ChangeName = () => {
   });
 
 
+  // ---------------------------------------------------------
+  // Cancelable redirect after success
+  // ---------------------------------------------------------
   useEffect(() => {
     const payload = redirectRef.current;
     if (!payload) return;
@@ -76,6 +118,9 @@ const ChangeName = () => {
   }, [successMessage, navigate]);
 
 
+  // ---------------------------------------------------------
+  // Auth guards
+  // ---------------------------------------------------------
   if (authLoading) {
     return (
       <Container className="py-5 text-center">
@@ -90,12 +135,15 @@ const ChangeName = () => {
   }
 
 
+  // ---------------------------------------------------------
+  // Submit
+  // ---------------------------------------------------------
   const onSubmit = async (data: FormData) => {
     setServerError(null);
     setSuccessMessage(null);
     redirectRef.current = null;
 
-    const payload = changedFields(data, {
+    const payload = changedStringFields(data, {
       surname: user.surname,
       othernames: user.othernames,
     }) as UpdateNames;
@@ -129,6 +177,7 @@ const ChangeName = () => {
       const status = error.response?.status;
       const detail = error.response?.data?.detail;
 
+      // 422 — Pydantic validation
       if (status === 422 && Array.isArray(detail)) {
         detail.forEach((item: unknown) => {
           if (typeof item !== "object" || item === null) return;
@@ -141,6 +190,7 @@ const ChangeName = () => {
         return;
       }
 
+      // Everything else: trust backend detail
       setServerError(
         typeof detail === "string"
           ? detail
@@ -150,6 +200,9 @@ const ChangeName = () => {
   };
 
 
+  // ---------------------------------------------------------
+  // UI
+  // ---------------------------------------------------------
   return (
     <Container className="py-5" style={{ maxWidth: 560 }}>
       <div className="bg-white p-4 rounded shadow-sm">
@@ -236,7 +289,3 @@ const ChangeName = () => {
 };
 
 export default ChangeName;
-
-
-
-
