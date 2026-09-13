@@ -1,13 +1,3 @@
-export interface ContactAdminMessage {
-  email: string;
-  message: string;
-}
-
-export interface ContactAdminResponse {
-  message: string;
-}
-
-
 
 // src/pages/ContactAdmin.tsx
 
@@ -85,7 +75,6 @@ const ContactAdmin = () => {
   // Redirect target + delay; used by the effect below
   const redirectRef = useRef<{ path: string; delayMs: number } | null>(null);
 
-
   const {
     register,
     handleSubmit,
@@ -152,12 +141,9 @@ const ContactAdmin = () => {
         payload
       );
 
-      setSuccessMessage(
-        response.data?.message ||
-          "Your message has been sent to our support team."
-      );
+      // Trust backend message; hardcode only as ultimate fallback.
+      setSuccessMessage(response.data.message);
 
-      // Redirect home after a short delay so the user can read the message.
       redirectRef.current = {
         path: "/",
         delayMs: 4000,
@@ -169,32 +155,24 @@ const ContactAdmin = () => {
         return;
       }
 
-      const statusCode = error.response?.status;
+      const status = error.response?.status;
       const detail = error.response?.data?.detail;
 
       // -------------------------------------------------------
-      // 422 — Pydantic validation
+      // 422 — Pydantic validation (field-level errors)
       // -------------------------------------------------------
-      if (statusCode === 422 && Array.isArray(detail)) {
+      if (status === 422 && Array.isArray(detail)) {
         detail.forEach((item: unknown) => {
           if (typeof item !== "object" || item === null) return;
 
-          const validationError = item as {
-            loc?: unknown[];
-            msg?: string;
-          };
-
-          const field =
-            validationError.loc?.[validationError.loc.length - 1];
+          const v = item as { loc?: unknown[]; msg?: string };
+          const field = v.loc?.[v.loc.length - 1];
 
           if (
             (field === "email" || field === "message") &&
-            validationError.msg
+            v.msg
           ) {
-            setError(field, {
-              type: "server",
-              message: validationError.msg,
-            });
+            setError(field, { type: "server", message: v.msg });
           }
         });
         return;
@@ -202,8 +180,12 @@ const ContactAdmin = () => {
 
       // -------------------------------------------------------
       // 429 — rate limit
+      //
+      // Prefer the Retry-After header (if the backend sends one)
+      // for the countdown; fall back to the backend's `detail`
+      // message for the banner text.
       // -------------------------------------------------------
-      if (statusCode === 429) {
+      if (status === 429) {
         const header = error.response?.headers?.["retry-after"];
         const parsed = header ? parseInt(String(header), 10) : NaN;
         const seconds = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
@@ -213,22 +195,23 @@ const ContactAdmin = () => {
         setServerError(
           typeof detail === "string"
             ? detail
-            : seconds
-              ? `Too many requests. Please wait ${seconds}s before trying again.`
-              : "Too many requests. Please try again in 1 hour."
+            : "Too many requests. Please try again later."
         );
         return;
       }
 
       // -------------------------------------------------------
-      // Any other HTTPException
+      // Everything else: trust the backend's `detail`.
+      // Fall back only when it's genuinely missing, and include
+      // the status code so unexpected paths are visible.
       // -------------------------------------------------------
-      if (typeof detail === "string") {
-        setServerError(detail);
-        return;
-      }
-
-      setServerError("Unable to send your message. Please try again.");
+      setServerError(
+        typeof detail === "string"
+          ? detail
+          : `Request failed${
+              status ? ` (${status})` : ""
+            }. Please try again.`
+      );
     }
   };
 
@@ -258,10 +241,6 @@ const ContactAdmin = () => {
           message and our support team will review it.
         </p>
 
-
-        {/* =====================================================
-            SUCCESS
-        ===================================================== */}
         {successMessage && (
           <Alert variant="success" className="text-center">
             {successMessage}
@@ -271,10 +250,6 @@ const ContactAdmin = () => {
           </Alert>
         )}
 
-
-        {/* =====================================================
-            SERVER ERROR
-        ===================================================== */}
         {serverError && (
           <Alert variant="danger" className="text-center">
             {serverError}
@@ -287,18 +262,9 @@ const ContactAdmin = () => {
           </Alert>
         )}
 
-
-        {/* =====================================================
-            FORM
-        ===================================================== */}
         <Form onSubmit={handleSubmit(onSubmit)} noValidate>
-
-          {/* ---------------------------------------------------
-              EMAIL
-          --------------------------------------------------- */}
           <Form.Group className="mb-3" controlId="email">
             <Form.Label>Your Email</Form.Label>
-
             <Form.Control
               type="email"
               autoComplete="email"
@@ -307,19 +273,13 @@ const ContactAdmin = () => {
               disabled={isSubmitting || successMessage !== null}
               {...register("email")}
             />
-
             <Form.Control.Feedback type="invalid">
               {errors.email?.message}
             </Form.Control.Feedback>
           </Form.Group>
 
-
-          {/* ---------------------------------------------------
-              MESSAGE
-          --------------------------------------------------- */}
           <Form.Group className="mb-4" controlId="message">
             <Form.Label>Message</Form.Label>
-
             <Form.Control
               as="textarea"
               rows={6}
@@ -329,7 +289,6 @@ const ContactAdmin = () => {
               maxLength={MESSAGE_MAX}
               {...register("message")}
             />
-
             <Form.Control.Feedback type="invalid">
               {errors.message?.message}
             </Form.Control.Feedback>
@@ -351,10 +310,6 @@ const ContactAdmin = () => {
             </div>
           </Form.Group>
 
-
-          {/* ---------------------------------------------------
-              SUBMIT
-          --------------------------------------------------- */}
           <Button
             type="submit"
             variant="primary"
@@ -379,13 +334,8 @@ const ContactAdmin = () => {
               "Send Message"
             )}
           </Button>
-
         </Form>
 
-
-        {/* =====================================================
-            BACK TO HOME
-        ===================================================== */}
         <p className="text-center mt-4 mb-0 small">
           <Link to="/">Back to home</Link>
         </p>
