@@ -1,14 +1,14 @@
 
-// src/components/profile/ChangePasswordCard.tsx
+// src/pages/user/ChangePassword.tsx
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Navigate } from "react-router-dom";
 import axios from "axios";
 
-import Card from "react-bootstrap/Card";
+import Container from "react-bootstrap/Container";
 import Form from "react-bootstrap/Form";
 import Button from "react-bootstrap/Button";
 import Alert from "react-bootstrap/Alert";
@@ -17,43 +17,36 @@ import Spinner from "react-bootstrap/Spinner";
 import api from "@/api/client";
 import { useAuth } from "@/context/AuthContext";
 
-import type { UpdatePassword, MessageResponse } from "@/types/user";
+import type { UpdatePassword, UpdatePasswordResponse } from "@/types";
 
 
-// =============================================================
-// VALIDATION
-//
-// Only mirrors *client-visible* rules:
-//   - current_password required
-//   - new_password min length (matches backend Field min_length=6)
-//
-// Does NOT duplicate the backend's same-password check.
-// The backend is authoritative and will return the correct error.
-// =============================================================
+const schema = z
+  .object({
+    current_password: z.string().min(1, "Current password is required"),
 
-const schema = z.object({
-  current_password: z
-    .string()
-    .min(1, "Current password is required"),
+    new_password: z
+      .string()
+      .min(6, "New password must be at least 6 characters"),
 
-  new_password: z
-    .string()
-    .min(6, "New password must be at least 6 characters"),
-});
+    confirm_password: z.string().min(1, "Please confirm your new password"),
+  })
+  // Client-side only — backend never sees this field.
+  .refine((d) => d.new_password === d.confirm_password, {
+    message: "Passwords do not match",
+    path: ["confirm_password"],
+  });
 
 type FormData = z.infer<typeof schema>;
 
 
-// =============================================================
-// COMPONENT
-// =============================================================
-
-const ChangePasswordCard = () => {
+const ChangePassword = () => {
   const navigate = useNavigate();
-  const { logout } = useAuth();
+  const { user, logout, isLoading: authLoading } = useAuth();
 
   const [serverError, setServerError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const redirectRef = useRef<{ run: () => void; delayMs: number } | null>(null);
 
   const {
     register,
@@ -66,13 +59,41 @@ const ChangePasswordCard = () => {
     defaultValues: {
       current_password: "",
       new_password: "",
+      confirm_password: "",
     },
   });
+
+
+  useEffect(() => {
+    const payload = redirectRef.current;
+    if (!payload) return;
+
+    const id = window.setTimeout(() => {
+      payload.run();
+    }, payload.delayMs);
+
+    return () => window.clearTimeout(id);
+  }, [successMessage, navigate]);
+
+
+  if (authLoading) {
+    return (
+      <Container className="py-5 text-center">
+        <Spinner animation="border" />
+        <p className="text-muted mt-2">Loading...</p>
+      </Container>
+    );
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
 
 
   const onSubmit = async (data: FormData) => {
     setServerError(null);
     setSuccessMessage(null);
+    redirectRef.current = null;
 
     const payload: UpdatePassword = {
       current_password: data.current_password,
@@ -80,33 +101,30 @@ const ChangePasswordCard = () => {
     };
 
     try {
-      const response = await api.post<MessageResponse>(
+      const response = await api.post<UpdatePasswordResponse>(
         "/me/password",
         payload
       );
 
       reset();
+      setSuccessMessage(response.data.message);
 
-      setSuccessMessage(
-        response.data.message ||
-          "Password updated successfully. Redirecting to login..."
-      );
-
-      // -------------------------------------------------------
-      // Backend revoked ALL refresh tokens — the current session
-      // is dead. Force a clean logout and redirect.
-      // -------------------------------------------------------
-      window.setTimeout(async () => {
-        try {
-          await logout();
-        } catch {
-          // Cookies already invalidated server-side; ignore.
-        }
-        navigate("/login", {
-          replace: true,
-          state: { passwordChanged: true },
-        });
-      }, 2500);
+      // Backend revoked all refresh tokens — the current session is
+      // dead. Log out cleanly, then redirect to login.
+      redirectRef.current = {
+        delayMs: 2500,
+        run: async () => {
+          try {
+            await logout();
+          } catch {
+            // Ignore — cookies are invalid server-side anyway
+          }
+          navigate("/login", {
+            replace: true,
+            state: { passwordChanged: true },
+          });
+        },
+      };
 
     } catch (error: unknown) {
       if (!axios.isAxiosError(error)) {
@@ -117,19 +135,14 @@ const ChangePasswordCard = () => {
       const status = error.response?.status;
       const detail = error.response?.data?.detail;
 
-      // -------------------------------------------------------
-      // 422 — Pydantic validation (field-level)
-      // -------------------------------------------------------
+      // 422 — Pydantic validation
       if (status === 422 && Array.isArray(detail)) {
         detail.forEach((item: unknown) => {
           if (typeof item !== "object" || item === null) return;
-
           const v = item as { loc?: unknown[]; msg?: string };
           const field = v.loc?.[v.loc.length - 1];
-
           if (
-            (field === "current_password" ||
-              field === "new_password") &&
+            (field === "current_password" || field === "new_password") &&
             v.msg
           ) {
             setError(field, { type: "server", message: v.msg });
@@ -138,62 +151,45 @@ const ChangePasswordCard = () => {
         return;
       }
 
-      // -------------------------------------------------------
-      // 401 — wrong current password → attach to that field
-      // -------------------------------------------------------
+      // 401 — wrong current password
       if (status === 401 && typeof detail === "string") {
-        setError("current_password", {
-          type: "server",
-          message: detail,
-        });
+        setError("current_password", { type: "server", message: detail });
         return;
       }
 
-      // -------------------------------------------------------
-      // 400 — same password → attach to new_password field
-      // -------------------------------------------------------
+      // 400 — same password
       if (status === 400 && typeof detail === "string") {
-        setError("new_password", {
-          type: "server",
-          message: detail,
-        });
+        setError("new_password", { type: "server", message: detail });
         return;
       }
 
-      // -------------------------------------------------------
-      // Everything else: trust backend `detail`.
-      // -------------------------------------------------------
       setServerError(
         typeof detail === "string"
           ? detail
-          : `Request failed${
-              status ? ` (${status})` : ""
-            }. Please try again.`
+          : `Request failed${status ? ` (${status})` : ""}. Please try again.`
       );
     }
   };
 
 
   return (
-    <Card className="mb-4">
-      <Card.Body>
-        <Card.Title as="h5" className="mb-1">
-          Change Password
-        </Card.Title>
-
-        <p className="text-muted small mb-3">
-          For your security, all active sessions will be signed out
-          after a password change.
+    <Container className="py-5" style={{ maxWidth: 560 }}>
+      <div className="bg-white p-4 rounded shadow-sm">
+        <h1 className="h3 mb-1">Change Password</h1>
+        <p className="text-muted small mb-4">
+          For your security, all active sessions will be signed out after
+          a password change.
         </p>
 
         {successMessage && (
-          <Alert variant="success" className="py-2">
+          <Alert variant="success" className="text-center">
             {successMessage}
+            <div className="small mt-1">Redirecting to login...</div>
           </Alert>
         )}
 
         {serverError && (
-          <Alert variant="danger" className="py-2">
+          <Alert variant="danger" className="text-center">
             {serverError}
           </Alert>
         )}
@@ -213,7 +209,7 @@ const ChangePasswordCard = () => {
             </Form.Control.Feedback>
           </Form.Group>
 
-          <Form.Group className="mb-4" controlId="new_password">
+          <Form.Group className="mb-3" controlId="new_password">
             <Form.Label>New Password</Form.Label>
             <Form.Control
               type="password"
@@ -230,31 +226,56 @@ const ChangePasswordCard = () => {
             </Form.Text>
           </Form.Group>
 
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={isSubmitting || successMessage !== null}
-          >
-            {isSubmitting ? (
-              <>
-                <Spinner
-                  as="span"
-                  animation="border"
-                  size="sm"
-                  className="me-2"
-                  role="status"
-                  aria-hidden="true"
-                />
-                Updating...
-              </>
-            ) : (
-              "Update Password"
-            )}
-          </Button>
+          <Form.Group className="mb-4" controlId="confirm_password">
+            <Form.Label>Confirm New Password</Form.Label>
+            <Form.Control
+              type="password"
+              autoComplete="new-password"
+              isInvalid={!!errors.confirm_password}
+              disabled={isSubmitting || successMessage !== null}
+              {...register("confirm_password")}
+            />
+            <Form.Control.Feedback type="invalid">
+              {errors.confirm_password?.message}
+            </Form.Control.Feedback>
+          </Form.Group>
+
+          <div className="d-flex gap-2">
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={isSubmitting || successMessage !== null}
+            >
+              {isSubmitting ? (
+                <>
+                  <Spinner
+                    as="span"
+                    animation="border"
+                    size="sm"
+                    className="me-2"
+                    role="status"
+                    aria-hidden="true"
+                  />
+                  Updating...
+                </>
+              ) : (
+                "Update Password"
+              )}
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline-secondary"
+              disabled={isSubmitting || successMessage !== null}
+              onClick={() => navigate("/profile")}
+            >
+              Cancel
+            </Button>
+          </div>
         </Form>
-      </Card.Body>
-    </Card>
+      </div>
+    </Container>
   );
 };
 
-export default ChangePasswordCard;
+export default ChangePassword;
