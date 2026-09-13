@@ -1,14 +1,16 @@
 
 
-// src/components/profile/UpdateNamesCard.tsx
 
-import { useState } from "react";
+// src/pages/user/ChangeName.tsx
+
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useNavigate, Navigate } from "react-router-dom";
 import axios from "axios";
 
-import Card from "react-bootstrap/Card";
+import Container from "react-bootstrap/Container";
 import Form from "react-bootstrap/Form";
 import Button from "react-bootstrap/Button";
 import Alert from "react-bootstrap/Alert";
@@ -16,21 +18,10 @@ import Spinner from "react-bootstrap/Spinner";
 
 import api from "@/api/client";
 import { useAuth } from "@/context/AuthContext";
+import { changedFields } from "@/lib/form";
 
-import type { ReadUser, UpdateNames } from "@/types/user";
+import type { UpdateNames, UpdateNamesResponse } from "@/types";
 
-
-// Response envelope from PATCH /me/names
-interface UpdateNamesResponse {
-  message: string;
-  user: ReadUser;
-}
-
-
-// =============================================================
-// VALIDATION — mirrors backend Field constraints only
-// (no same-password-style duplication of business rules)
-// =============================================================
 
 const schema = z.object({
   surname: z
@@ -49,15 +40,14 @@ const schema = z.object({
 type FormData = z.infer<typeof schema>;
 
 
-// =============================================================
-// COMPONENT
-// =============================================================
-
-const UpdateNamesCard = () => {
-  const { user, setUser } = useAuth();
+const ChangeName = () => {
+  const navigate = useNavigate();
+  const { user, setUser, isLoading: authLoading } = useAuth();
 
   const [serverError, setServerError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const redirectRef = useRef<{ path: string; delayMs: number } | null>(null);
 
   const {
     register,
@@ -74,23 +64,43 @@ const UpdateNamesCard = () => {
   });
 
 
+  useEffect(() => {
+    const payload = redirectRef.current;
+    if (!payload) return;
+
+    const id = window.setTimeout(() => {
+      navigate(payload.path, { replace: true });
+    }, payload.delayMs);
+
+    return () => window.clearTimeout(id);
+  }, [successMessage, navigate]);
+
+
+  if (authLoading) {
+    return (
+      <Container className="py-5 text-center">
+        <Spinner animation="border" />
+        <p className="text-muted mt-2">Loading...</p>
+      </Container>
+    );
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+
   const onSubmit = async (data: FormData) => {
     setServerError(null);
     setSuccessMessage(null);
+    redirectRef.current = null;
 
-    // Build only the fields the user actually changed.
-    // Backend rejects no-op updates, so we filter here too.
-    const payload: UpdateNames = {};
-
-    if (data.surname.trim() !== (user?.surname ?? "").trim()) {
-      payload.surname = data.surname.trim();
-    }
-    if (data.othernames.trim() !== (user?.othernames ?? "").trim()) {
-      payload.othernames = data.othernames.trim();
-    }
+    const payload = changedFields(data, {
+      surname: user.surname,
+      othernames: user.othernames,
+    }) as UpdateNames;
 
     if (Object.keys(payload).length === 0) {
-      // Pure client-side shortcut — no request needed.
       setServerError("No changes were made");
       return;
     }
@@ -101,18 +111,14 @@ const UpdateNamesCard = () => {
         payload
       );
 
-      // Update AuthContext from the returned user
-      if (setUser) {
-        setUser(response.data.user);
-      }
-
+      setUser(response.data.user);
       reset({
         surname: response.data.user.surname,
         othernames: response.data.user.othernames,
       });
 
-      // Trust the backend's message.
       setSuccessMessage(response.data.message);
+      redirectRef.current = { path: "/profile", delayMs: 1500 };
 
     } catch (error: unknown) {
       if (!axios.isAxiosError(error)) {
@@ -123,56 +129,41 @@ const UpdateNamesCard = () => {
       const status = error.response?.status;
       const detail = error.response?.data?.detail;
 
-      // -------------------------------------------------------
-      // 422 — Pydantic validation (field-level errors)
-      // -------------------------------------------------------
       if (status === 422 && Array.isArray(detail)) {
         detail.forEach((item: unknown) => {
           if (typeof item !== "object" || item === null) return;
-
           const v = item as { loc?: unknown[]; msg?: string };
           const field = v.loc?.[v.loc.length - 1];
-
-          if (
-            (field === "surname" || field === "othernames") &&
-            v.msg
-          ) {
+          if ((field === "surname" || field === "othernames") && v.msg) {
             setError(field, { type: "server", message: v.msg });
           }
         });
         return;
       }
 
-      // -------------------------------------------------------
-      // All other errors: trust backend `detail`.
-      // Fall back only when detail is absent (proxy/HTML, etc).
-      // -------------------------------------------------------
       setServerError(
         typeof detail === "string"
           ? detail
-          : `Request failed${
-              status ? ` (${status})` : ""
-            }. Please try again.`
+          : `Request failed${status ? ` (${status})` : ""}. Please try again.`
       );
     }
   };
 
 
   return (
-    <Card className="mb-4">
-      <Card.Body>
-        <Card.Title as="h5" className="mb-3">
-          Personal Information
-        </Card.Title>
+    <Container className="py-5" style={{ maxWidth: 560 }}>
+      <div className="bg-white p-4 rounded shadow-sm">
+        <h1 className="h3 mb-4">Change Name</h1>
 
         {successMessage && (
-          <Alert variant="success" className="py-2">
+          <Alert variant="success" className="text-center">
             {successMessage}
+            <div className="small mt-1">Redirecting to profile...</div>
           </Alert>
         )}
 
         {serverError && (
-          <Alert variant="danger" className="py-2">
+          <Alert variant="danger" className="text-center">
             {serverError}
           </Alert>
         )}
@@ -184,7 +175,7 @@ const UpdateNamesCard = () => {
               type="text"
               autoComplete="family-name"
               isInvalid={!!errors.surname}
-              disabled={isSubmitting}
+              disabled={isSubmitting || successMessage !== null}
               {...register("surname")}
             />
             <Form.Control.Feedback type="invalid">
@@ -198,7 +189,7 @@ const UpdateNamesCard = () => {
               type="text"
               autoComplete="given-name"
               isInvalid={!!errors.othernames}
-              disabled={isSubmitting}
+              disabled={isSubmitting || successMessage !== null}
               {...register("othernames")}
             />
             <Form.Control.Feedback type="invalid">
@@ -210,7 +201,7 @@ const UpdateNamesCard = () => {
             <Button
               type="submit"
               variant="primary"
-              disabled={isSubmitting || !isDirty}
+              disabled={isSubmitting || !isDirty || successMessage !== null}
             >
               {isSubmitting ? (
                 <>
@@ -232,27 +223,19 @@ const UpdateNamesCard = () => {
             <Button
               type="button"
               variant="outline-secondary"
-              disabled={isSubmitting || !isDirty}
-              onClick={() =>
-                reset({
-                  surname: user?.surname ?? "",
-                  othernames: user?.othernames ?? "",
-                })
-              }
+              disabled={isSubmitting || successMessage !== null}
+              onClick={() => navigate("/profile")}
             >
-              Reset
+              Cancel
             </Button>
           </div>
         </Form>
-      </Card.Body>
-    </Card>
+      </div>
+    </Container>
   );
 };
 
-export default UpdateNamesCard;
-
-
-
+export default ChangeName;
 
 
 
