@@ -1,158 +1,350 @@
+
+      
+
+
 // src/pages/Profile.tsx
+
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import axios from "axios";
+
+import Container from "react-bootstrap/Container";
+import ListGroup from "react-bootstrap/ListGroup";
+import Button from "react-bootstrap/Button";
+import Alert from "react-bootstrap/Alert";
+import Spinner from "react-bootstrap/Spinner";
+import Image from "react-bootstrap/Image";
+
 import api from "@/api/client";
 import { useAuth } from "@/context/AuthContext";
-import type { User } from "@/types/user";
+
+import type { UserProfile } from "@/types";
+
+
+// =============================================================
+// HELPERS
+// =============================================================
+
+/**
+ * Resolve a display name, preferring the server-computed
+ * full_name and falling back to a client-side join.
+ */
+const resolveDisplayName = (u: UserProfile): string => {
+  if (u.full_name && u.full_name.trim()) return u.full_name;
+  const joined = [u.surname, u.othernames].filter(Boolean).join(" ").trim();
+  return joined || "—";
+};
+
+
+// =============================================================
+// COMPONENT
+// =============================================================
 
 const Profile = () => {
   const { logout, logoutMessage } = useAuth();
   const navigate = useNavigate();
 
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
+
+  // ===========================================================
+  // LOAD PROFILE
+  // ===========================================================
   useEffect(() => {
+    let mounted = true;
+
     const fetchProfile = async () => {
       try {
         setLoading(true);
         setError(null);
 
-        const res = await api.get<User>("/profile");
-        setUser(res.data);
-      } catch (err: any) {
-        const status = err.response?.status;
-        const detail =
-          err.response?.data?.detail || "Failed to load profile";
+        const res = await api.get<UserProfile>("/userprofile");
+        if (mounted) setUser(res.data);
 
-        setError(detail);
+      } catch (err: unknown) {
+        if (!mounted) return;
 
-        if (status === 401) {
-          setTimeout(() => {
-            navigate("/login", { replace: true });
-          }, 2000);
+        if (!axios.isAxiosError(err)) {
+          setError("An unexpected error occurred.");
           return;
         }
 
-        if (status === 403) {
-          const lower = String(detail).toLowerCase();
+        const status = err.response?.status;
+        const detail = err.response?.data?.detail;
 
-          if (lower.includes("disabled") || lower.includes("suspended")) {
-            setTimeout(() => {
-              navigate("/contact-admin", { replace: true });
-            }, 2000);
-            return;
-          }
+        setError(
+          typeof detail === "string"
+            ? detail
+            : `Failed to load profile${
+                status ? ` (${status})` : ""
+              }.`
+        );
 
-          if (lower.includes("not verified") || lower.includes("verify")) {
-            setTimeout(() => {
-              navigate("/resend-verification", { replace: true });
-            }, 2000);
-            return;
-          }
+        // Route based on HTTP status only — never on message text.
+        if (status === 401) {
+          window.setTimeout(() => {
+            if (mounted) navigate("/login", { replace: true });
+          }, 2000);
+        } else if (status === 403) {
+          window.setTimeout(() => {
+            if (mounted) navigate("/contact-admin", { replace: true });
+          }, 2000);
         }
+
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
     };
 
     fetchProfile();
+
+    return () => {
+      mounted = false;
+    };
   }, [navigate]);
 
+
+  // ===========================================================
+  // DELETE ACCOUNT
+  // ===========================================================
+  const handleDeleteAccount = async () => {
+    if (
+      !window.confirm(
+        "Are you sure you want to delete your account? This cannot be undone."
+      )
+    ) {
+      return;
+    }
+
+    setDeleting(true);
+    setError(null);
+
+    try {
+      const res = await api.delete<{ message?: string }>("/profile");
+
+      setMessage(
+        res.data.message || "Account deleted successfully."
+      );
+
+      window.setTimeout(() => {
+        logout();
+      }, 1500);
+
+    } catch (err: unknown) {
+      if (!axios.isAxiosError(err)) {
+        setError("An unexpected error occurred.");
+        return;
+      }
+
+      const status = err.response?.status;
+      const detail = err.response?.data?.detail;
+
+      setError(
+        typeof detail === "string"
+          ? detail
+          : `Failed to delete account${
+              status ? ` (${status})` : ""
+            }.`
+      );
+
+      if (status === 401) {
+        window.setTimeout(
+          () => navigate("/login", { replace: true }),
+          2000
+        );
+      }
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+
+  // ===========================================================
+  // LOADING
+  // ===========================================================
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-gray-600 animate-pulse">Loading profile...</p>
-      </div>
+      <Container className="py-5 text-center">
+        <Spinner animation="border" />
+        <p className="mt-3 text-muted">Loading profile...</p>
+      </Container>
     );
   }
 
-  if (error) {
+
+  // ===========================================================
+  // ERROR, NO USER
+  // ===========================================================
+  if (error && !user) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center p-8 bg-white rounded-xl shadow-lg max-w-md">
-          <p className="text-red-600 font-medium text-lg mb-4">{error}</p>
-          <p className="text-sm text-gray-500">Redirecting...</p>
-        </div>
-      </div>
+      <Container className="py-5" style={{ maxWidth: 480 }}>
+        <Alert variant="danger" className="text-center">
+          {error}
+          <div className="small mt-2 text-muted">Redirecting...</div>
+        </Alert>
+      </Container>
     );
   }
 
   if (!user) return null;
 
-  return (
-    <div className="min-h-screen bg-gray-50 py-10 px-4">
-      <div className="max-w-2xl mx-auto bg-white rounded-xl shadow-lg p-8">
-        <h1 className="text-3xl font-bold text-gray-800 mb-8">My Profile</h1>
+  const displayName = resolveDisplayName(user);
+  const hasAvatar = typeof user.avatar === "string" && user.avatar.trim().length > 0;
 
-        {/* Logout success message */}
+
+  // ===========================================================
+  // UI
+  // ===========================================================
+  return (
+    <Container className="py-5" style={{ maxWidth: 640 }}>
+      <div className="bg-white p-4 rounded shadow-sm">
+        <h1 className="h3 mb-4">My Profile</h1>
+
         {logoutMessage && (
-          <div className="mb-6 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-center">
+          <Alert variant="success" className="text-center">
             {logoutMessage}
-          </div>
+          </Alert>
         )}
 
-        <div className="flex justify-center mb-8">
-          {user.avatar ? (
-            <img
-              src={user.avatar}
-              alt={`${user.surname} avatar`}
-              className="w-28 h-28 rounded-full object-cover border-4 border-gray-200 shadow"
+        {message && (
+          <Alert variant="success" className="text-center">
+            {message}
+          </Alert>
+        )}
+
+        {error && (
+          <Alert variant="danger" className="text-center">
+            {error}
+          </Alert>
+        )}
+
+        {/* =====================================================
+            AVATAR
+            — show backend avatar if present, else initials
+        ===================================================== */}
+        <div className="d-flex justify-content-center mb-4">
+          {hasAvatar ? (
+            <Image
+              src={user.avatar!}
+              alt={`${displayName} avatar`}
+              roundedCircle
+              width={112}
+              height={112}
+              className="border shadow-sm"
+              style={{ objectFit: "cover" }}
+              onError={(e) => {
+                // If the URL is broken, fall back to initials by
+                // clearing the src state via error event styling.
+                (e.currentTarget as HTMLImageElement).style.display = "none";
+              }}
             />
           ) : (
-            <div className="w-28 h-28 rounded-full bg-gray-200 flex items-center justify-center text-3xl font-bold text-gray-500">
-              {user.surname?.charAt(0).toUpperCase()}
+            <div
+              className="rounded-circle bg-light border d-flex align-items-center justify-content-center fw-bold text-secondary"
+              style={{ width: 112, height: 112, fontSize: "2rem" }}
+            >
+              {displayName.charAt(0).toUpperCase()}
             </div>
           )}
         </div>
 
-        <div className="space-y-5 text-lg">
-          <div className="flex justify-between border-b pb-3">
-            <span className="font-medium text-gray-600">Email</span>
-            <span>{user.email}</span>
-          </div>
-          <div className="flex justify-between border-b pb-3">
-            <span className="font-medium text-gray-600">Surname</span>
-            <span>{user.surname}</span>
-          </div>
-          <div className="flex justify-between border-b pb-3">
-            <span className="font-medium text-gray-600">Other Names</span>
-            <span>{user.othernames}</span>
-          </div>
-          <div className="flex justify-between border-b pb-3">
-            <span className="font-medium text-gray-600">Verified</span>
+        {/* =====================================================
+            DETAILS
+        ===================================================== */}
+        <ListGroup>
+          {/* Full Name */}
+          <ListGroup.Item className="d-flex justify-content-between align-items-center">
+            <div>
+              <div className="text-muted small">Full Name</div>
+              <div className="fw-medium">{displayName}</div>
+            </div>
+            <Link
+              to="/profile/change-name"
+              className="btn btn-sm btn-outline-primary"
+            >
+              Edit
+            </Link>
+          </ListGroup.Item>
+
+          {/* Email */}
+          <ListGroup.Item className="d-flex justify-content-between align-items-center">
+            <div>
+              <div className="text-muted small">Email</div>
+              <div className="fw-medium">{user.email}</div>
+            </div>
+            <Link
+              to="/profile/change-email"
+              className="btn btn-sm btn-outline-primary"
+            >
+              Edit
+            </Link>
+          </ListGroup.Item>
+
+          {/* Password */}
+          <ListGroup.Item className="d-flex justify-content-between align-items-center">
+            <div>
+              <div className="text-muted small">Password</div>
+              <div className="fw-medium">••••••••</div>
+            </div>
+            <Link
+              to="/profile/change-password"
+              className="btn btn-sm btn-outline-primary"
+            >
+              Edit
+            </Link>
+          </ListGroup.Item>
+
+          {/* Country (optional) */}
+          {user.country && (
+            <ListGroup.Item className="d-flex justify-content-between">
+              <strong>Country</strong>
+              <span>{user.country}</span>
+            </ListGroup.Item>
+          )}
+
+          {/* Verified */}
+          <ListGroup.Item className="d-flex justify-content-between">
+            <strong>Verified</strong>
             <span>{user.verified ? "Yes" : "No"}</span>
-          </div>
-          <div className="flex justify-between border-b pb-3">
-            <span className="font-medium text-gray-600">Status</span>
+          </ListGroup.Item>
+
+          {/* Status */}
+          <ListGroup.Item className="d-flex justify-content-between">
+            <strong>Status</strong>
             <span>{user.disabled ? "Disabled" : "Active"}</span>
-          </div>
+          </ListGroup.Item>
 
-               {/* Conditiona */}
-         `  {user.is_admin === true && (
-                <div className="flex justify-between border-b pb-3">
-                <span className="font-medium text-gray-600">Admin</span>
-                <span>Yes</span>
-                </div>
-            )}
+          {/* Admin (only when true) */}
+          {user.is_admin === true && (
+            <ListGroup.Item className="d-flex justify-content-between">
+              <strong>Admin</strong>
+              <span>Yes</span>
+            </ListGroup.Item>
+          )}
 
-            {user.name && (
-            <div className="flex justify-between border-b pb-3">
-            <span className="font-medium text-gray-600">Group</span>
-            <span>{user.name}</span>
-            </div>
-            )}
+          {/* Group (only when present) */}
+          {user.name && (
+            <ListGroup.Item className="d-flex justify-content-between">
+              <strong>Group</strong>
+              <span>{user.name}</span>
+            </ListGroup.Item>
+          )}
 
-            {user.permission && (
-            <div className="flex justify-between border-b pb-3">
-            <span className="font-medium text-gray-600">Permission</span>
-            <span>{user.permission}</span>
-            </div>
-            )}
+          {/* Permission (only when present) */}
+          {user.permission && (
+            <ListGroup.Item className="d-flex justify-content-between">
+              <strong>Permission</strong>
+              <span>{user.permission}</span>
+            </ListGroup.Item>
+          )}
 
-            <div className="flex justify-between border-b pb-3">
-            <span className="font-medium text-gray-600">Member Since</span>
+          {/* Member Since */}
+          <ListGroup.Item className="d-flex justify-content-between">
+            <strong>Member Since</strong>
             <span>
               {new Date(user.created_at).toLocaleDateString("en-GB", {
                 day: "numeric",
@@ -161,43 +353,30 @@ const Profile = () => {
                 timeZone: "UTC",
               })}
             </span>
-            </div>
+          </ListGroup.Item>
+        </ListGroup>
 
-
-            <div className="flex justify-between border-b pb-3">
-            <span className="font-medium text-gray-600">Last Updated On</span>
-            <span>
-              {new Date(user.updated_at).toLocaleDateString("en-GB", {
-                day: "numeric",
-                month: "long",
-                year: "numeric",
-                timeZone: "UTC",
-              })}
-            </span>
-            </div>
-
-                {/* end*/}
-
-
-
-        </div>
-
-        <button
-          onClick={logout}
-          className="mt-10 w-full bg-red-600 hover:bg-red-700 text-white py-3 rounded-lg font-semibold transition"
+        {/* =====================================================
+            ACTIONS
+        ===================================================== */}
+        <Button
+          variant="outline-danger"
+          className="w-100 mt-4"
+          onClick={handleDeleteAccount}
+          disabled={deleting}
         >
+          {deleting ? "Deleting..." : "Delete my account"}
+        </Button>
+
+        <Button variant="danger" className="w-100 mt-3" onClick={logout}>
           Logout
-        </button>
+        </Button>
       </div>
-    </div>
+    </Container>
   );
 };
 
 export default Profile;
-      
-
-
-
 
 
 
