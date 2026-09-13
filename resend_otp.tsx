@@ -1,5 +1,5 @@
 
-// src/components/ResendOtp.tsx
+// src/components/auth/ResendOtp.tsx
 
 import { useEffect, useRef, useState } from "react";
 import axios from "axios";
@@ -9,10 +9,7 @@ import Alert from "react-bootstrap/Alert";
 import Spinner from "react-bootstrap/Spinner";
 
 import api from "@/api/client";
-import type {
-  MessageResponse,
-  OtpType,
-} from "@/types/user";
+import type { MessageResponse, OtpType, ResendOtpRequest } from "@/types";
 
 
 // =============================================================
@@ -20,7 +17,14 @@ import type {
 // =============================================================
 
 interface ResendOtpProps {
-  /** Email used to look up the user (see backend caveat for email_change). */
+  /**
+   * Email used to look up the user.
+   *
+   * NOTE: for `email_change`, the backend resolves the user from
+   * the Redis session — the value of `email` here is not used for
+   * the lookup. It's still required by the request schema, so pass
+   * the current account email.
+   */
   email: string;
 
   /** Anti-replay session token from the flow that initiated OTP. */
@@ -31,12 +35,12 @@ interface ResendOtpProps {
 
   /**
    * Label for the button. Defaults to "Resend code".
-   * e.g. "Resend verification code", "Send new login code"
+   * e.g. "Resend verification code", "Send new login code".
    */
   buttonLabel?: string;
 
   /**
-   * Called when the session token is expired / invalid (400).
+   * Called when the session token is expired / invalid (HTTP 400).
    * Parent decides where to redirect (e.g. /register, /login).
    */
   onSessionExpired?: () => void;
@@ -44,7 +48,7 @@ interface ResendOtpProps {
   /** Disable while the parent is in a success/terminal state. */
   disabled?: boolean;
 
-  /** Optional cooldown (seconds) enforced client-side after success. */
+  /** Cooldown (seconds) enforced client-side after success. */
   cooldownSeconds?: number;
 }
 
@@ -67,7 +71,7 @@ const ResendOtp = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [cooldown, setCooldown] = useState(0);
 
-  // Ensure setState after unmount is avoided
+  // Avoid setState after unmount
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
@@ -92,11 +96,16 @@ const ResendOtp = ({
 
 
   // ---------------------------------------------------------
-  // Reset alerts when session token changes (new flow)
+  // Reset state when the session token or flow changes
+  //
+  // Prevents a cooldown / success / error message from one
+  // flow leaking into the next (e.g. re-entering the page
+  // with a fresh token).
   // ---------------------------------------------------------
   useEffect(() => {
     setSuccessMessage(null);
     setErrorMessage(null);
+    setCooldown(0);
   }, [accountToken, otpType]);
 
 
@@ -108,21 +117,22 @@ const ResendOtp = ({
     setErrorMessage(null);
     setIsSending(true);
 
+    const payload: ResendOtpRequest = {
+      email,
+      account_token: accountToken,
+      otp_type: otpType,
+    };
+
     try {
       const response = await api.post<MessageResponse>(
         "/auth/resend-otp",
-        {
-          email,
-          account_token: accountToken,
-          otp_type: otpType,
-        }
+        payload
       );
 
       if (!mountedRef.current) return;
 
-      setSuccessMessage(
-        response.data?.message || "A new OTP has been sent to your email."
-      );
+      // Trust backend message; fall back only if absent.
+      setSuccessMessage(response.data.message);
 
       setCooldown(cooldownSeconds);
 
@@ -137,7 +147,14 @@ const ResendOtp = ({
       const status = error.response?.status;
       const detail = error.response?.data?.detail;
 
-      // 400 → session expired; notify parent, don't show raw message
+      // -------------------------------------------------------
+      // 400 — session token expired / invalid.
+      //
+      // Backend contract: this status is reserved for
+      // "session expired or invalid" across all flows.
+      // Notify parent so it can route the user back to the
+      // initiate-* page for this flow.
+      // -------------------------------------------------------
       if (status === 400) {
         setErrorMessage(
           typeof detail === "string"
@@ -153,38 +170,52 @@ const ResendOtp = ({
         return;
       }
 
-      // 429 → cooldown; parse retry-after
+      // -------------------------------------------------------
+      // 429 — rate limited / OTP cooldown.
+      //
+      // Prefer the Retry-After header when present; otherwise
+      // show the backend's detail as-is.
+      // -------------------------------------------------------
       if (status === 429) {
         const retryAfterHeader = error.response?.headers?.["retry-after"];
-        const retryAfter = retryAfterHeader
+        const parsed = retryAfterHeader
           ? parseInt(String(retryAfterHeader), 10)
-          : null;
+          : NaN;
+        const retryAfterSeconds =
+          Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 
         setErrorMessage(
           typeof detail === "string"
             ? detail
-            : retryAfter
-              ? `Please wait ${retryAfter}s before requesting another code.`
+            : retryAfterSeconds
+              ? `Please wait ${retryAfterSeconds}s before requesting another code.`
               : "Please wait before requesting another code."
         );
 
-        if (retryAfter && !Number.isNaN(retryAfter)) {
-          setCooldown(retryAfter);
+        if (retryAfterSeconds !== null) {
+          setCooldown(retryAfterSeconds);
         }
         return;
       }
 
-      // 422 → validation
+      // -------------------------------------------------------
+      // 422 — validation. Show the first backend message.
+      // -------------------------------------------------------
       if (status === 422 && Array.isArray(detail)) {
         const first = detail[0] as { msg?: string } | undefined;
-        setErrorMessage(first?.msg || "Invalid request.");
+        setErrorMessage(first?.msg ?? "Invalid request.");
         return;
       }
 
+      // -------------------------------------------------------
+      // Everything else: trust backend detail.
+      // -------------------------------------------------------
       setErrorMessage(
         typeof detail === "string"
           ? detail
-          : "Unable to resend code. Please try again."
+          : `Unable to resend code${
+              status ? ` (${status})` : ""
+            }. Please try again.`
       );
     } finally {
       if (mountedRef.current) setIsSending(false);
@@ -195,8 +226,7 @@ const ResendOtp = ({
   // ---------------------------------------------------------
   // UI
   // ---------------------------------------------------------
-  const isButtonDisabled =
-    disabled || isSending || cooldown > 0;
+  const isButtonDisabled = disabled || isSending || cooldown > 0;
 
   return (
     <div className="d-flex flex-column gap-2">
@@ -227,17 +257,20 @@ const ResendOtp = ({
         )}
       </Button>
 
-      {successMessage && (
-        <Alert variant="info" className="mb-0 py-2 small text-center">
-          {successMessage}
-        </Alert>
-      )}
+      {/* Live region for screen readers */}
+      <div aria-live="polite" aria-atomic="true">
+        {successMessage && (
+          <Alert variant="info" className="mb-0 py-2 small text-center">
+            {successMessage}
+          </Alert>
+        )}
 
-      {errorMessage && (
-        <Alert variant="warning" className="mb-0 py-2 small text-center">
-          {errorMessage}
-        </Alert>
-      )}
+        {errorMessage && (
+          <Alert variant="warning" className="mb-0 py-2 small text-center">
+            {errorMessage}
+          </Alert>
+        )}
+      </div>
     </div>
   );
 };
