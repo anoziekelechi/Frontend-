@@ -1,55 +1,104 @@
 
 // src/components/auth/ResendOtp.tsx
 
-import { useEffect, useRef, useState } from "react";
-import axios from "axios";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import axios, { AxiosError } from "axios";
 
 import Button from "react-bootstrap/Button";
 import Alert from "react-bootstrap/Alert";
 import Spinner from "react-bootstrap/Spinner";
 
 import api from "@/api/client";
-import type { MessageResponse, OtpType, ResendOtpRequest } from "@/types";
+import type {
+  MessageResponse,
+  OtpType,
+  ResendOtpRequest,
+} from "@/types";
 
 
 // =============================================================
-// PROPS
+// TYPES
 // =============================================================
 
 interface ResendOtpProps {
-  /**
-   * Email used to look up the user.
-   *
-   * NOTE: for `email_change`, the backend resolves the user from
-   * the Redis session — the value of `email` here is not used for
-   * the lookup. It's still required by the request schema, so pass
-   * the current account email.
-   */
   email: string;
-
-  /** Anti-replay session token from the flow that initiated OTP. */
   accountToken: string;
-
-  /** Which flow this OTP belongs to. */
   otpType: OtpType;
-
-  /**
-   * Label for the button. Defaults to "Resend code".
-   * e.g. "Resend verification code", "Send new login code".
-   */
   buttonLabel?: string;
-
-  /**
-   * Called when the session token is expired / invalid (HTTP 400).
-   * Parent decides where to redirect (e.g. /register, /login).
-   */
   onSessionExpired?: () => void;
-
-  /** Disable while the parent is in a success/terminal state. */
   disabled?: boolean;
-
-  /** Cooldown (seconds) enforced client-side after success. */
   cooldownSeconds?: number;
+  onSuccess?: (message: string) => void;
+  onError?: (message: string, status?: number) => void;
+}
+
+interface FastApiValidationError {
+  msg?: string;
+  loc?: (string | number)[];
+  type?: string;
+}
+
+
+// =============================================================
+// BACKEND MESSAGE EXTRACTION
+//
+// The backend is the single source of truth for user-facing
+// copy. This helper pulls the message out of the response
+// WITHOUT rewriting it.
+//
+// Only falls back when the backend gave us nothing usable —
+// which means the request never reached the application layer
+// (network error, proxy failure, unhandled 5xx, etc.).
+// =============================================================
+
+function extractRetryAfter(error: AxiosError): number | null {
+  const raw = error.response?.headers?.["retry-after"];
+  if (raw === undefined || raw === null) return null;
+
+  const asString = String(raw).trim();
+
+  const seconds = Number(asString);
+  if (Number.isFinite(seconds) && seconds > 0) {
+    return Math.ceil(seconds);
+  }
+
+  const date = new Date(asString);
+  if (!Number.isNaN(date.getTime())) {
+    const diff = Math.ceil((date.getTime() - Date.now()) / 1000);
+    return diff > 0 ? diff : null;
+  }
+
+  return null;
+}
+
+
+/**
+ * Pull the backend-provided message out of a FastAPI error
+ * response, without rewriting it.
+ *
+ * - `detail` as string  → returned verbatim
+ * - `detail` as array   → first item's `msg` returned verbatim
+ * - otherwise           → null (frontend must supply a
+ *                         transport-level fallback)
+ */
+function extractBackendMessage(error: AxiosError): string | null {
+  const detail = error.response?.data?.detail;
+
+  if (typeof detail === "string" && detail.length > 0) {
+    return detail;
+  }
+
+  if (Array.isArray(detail) && detail.length > 0) {
+    const first = detail[0] as FastApiValidationError | undefined;
+    if (first?.msg) return first.msg;
+  }
+
+  return null;
 }
 
 
@@ -65,18 +114,27 @@ const ResendOtp = ({
   onSessionExpired,
   disabled = false,
   cooldownSeconds = 30,
+  onSuccess,
+  onError,
 }: ResendOtpProps) => {
   const [isSending, setIsSending] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [cooldown, setCooldown] = useState(0);
 
-  // Avoid setState after unmount
   const mountedRef = useRef(true);
+  const abortRef = useRef<AbortController | null>(null);
+
+
+  // ---------------------------------------------------------
+  // Lifecycle
+  // ---------------------------------------------------------
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      abortRef.current?.abort();
+      abortRef.current = null;
     };
   }, []);
 
@@ -86,21 +144,15 @@ const ResendOtp = ({
   // ---------------------------------------------------------
   useEffect(() => {
     if (cooldown <= 0) return;
-
     const id = window.setInterval(() => {
       setCooldown((c) => (c <= 1 ? 0 : c - 1));
     }, 1000);
-
     return () => window.clearInterval(id);
   }, [cooldown]);
 
 
   // ---------------------------------------------------------
-  // Reset state when the session token or flow changes
-  //
-  // Prevents a cooldown / success / error message from one
-  // flow leaking into the next (e.g. re-entering the page
-  // with a fresh token).
+  // Reset on token / flow change
   // ---------------------------------------------------------
   useEffect(() => {
     setSuccessMessage(null);
@@ -112,10 +164,16 @@ const ResendOtp = ({
   // ---------------------------------------------------------
   // Send
   // ---------------------------------------------------------
-  const handleResend = async () => {
+  const handleResend = useCallback(async () => {
+    if (isSending || cooldown > 0 || disabled) return;
+
     setSuccessMessage(null);
     setErrorMessage(null);
     setIsSending(true);
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     const payload: ResendOtpRequest = {
       email,
@@ -126,41 +184,84 @@ const ResendOtp = ({
     try {
       const response = await api.post<MessageResponse>(
         "/auth/resend-otp",
-        payload
+        payload,
+        { signal: controller.signal },
       );
 
       if (!mountedRef.current) return;
 
-      // Trust backend message; fall back only if absent.
-      setSuccessMessage(response.data.message);
+      // Backend owns the success copy.
+      // If it's missing, that's a backend contract violation —
+      // log it, don't invent copy on the frontend.
+      const message = response.data?.message;
+      if (!message) {
+        // eslint-disable-next-line no-console
+        console.error(
+          "Backend returned 2xx without a `message` field. " +
+            "This violates the API contract.",
+        );
+        return;
+      }
 
+      setSuccessMessage(message);
       setCooldown(cooldownSeconds);
+      onSuccess?.(message);
 
     } catch (error: unknown) {
+      if (axios.isCancel(error)) return;
       if (!mountedRef.current) return;
 
+      // ------------------------------------------------
+      // Non-axios throw — bug in our code, or fetch
+      // layer (interceptor) failed before the request
+      // even left the browser.
+      // ------------------------------------------------
       if (!axios.isAxiosError(error)) {
-        setErrorMessage("An unexpected error occurred.");
+        const msg = "Network error. Please try again.";
+        setErrorMessage(msg);
+        onError?.(msg);
         return;
       }
 
       const status = error.response?.status;
-      const detail = error.response?.data?.detail;
 
-      // -------------------------------------------------------
-      // 400 — session token expired / invalid.
+      // ------------------------------------------------
+      // No response at all — the request never reached
+      // the backend. This is the ONE case the frontend
+      // must own the copy, because the backend cannot.
+      // ------------------------------------------------
+      if (!error.response) {
+        const msg = "Network error. Please try again.";
+        setErrorMessage(msg);
+        onError?.(msg);
+        return;
+      }
+
+      // ------------------------------------------------
+      // Backend spoke. Use its message verbatim.
+      // ------------------------------------------------
+      const backendMessage = extractBackendMessage(error);
+
+      // ------------------------------------------------
+      // 400 — session expired / invalid.
       //
-      // Backend contract: this status is reserved for
-      // "session expired or invalid" across all flows.
-      // Notify parent so it can route the user back to the
-      // initiate-* page for this flow.
-      // -------------------------------------------------------
+      // Backend contract guarantees a string `detail`
+      // for this case. If it's missing, we still need
+      // *something* to show, but flag it as a contract
+      // violation.
+      // ------------------------------------------------
       if (status === 400) {
-        setErrorMessage(
-          typeof detail === "string"
-            ? detail
-            : "Session expired. Please start over."
-        );
+        if (!backendMessage) {
+          // eslint-disable-next-line no-console
+          console.error(
+            "Backend returned 400 without `detail`. " +
+              "Contract violation.",
+          );
+        }
+
+        const msg = backendMessage ?? "Session expired.";
+        setErrorMessage(msg);
+        onError?.(msg, status);
 
         if (onSessionExpired) {
           window.setTimeout(() => {
@@ -170,57 +271,64 @@ const ResendOtp = ({
         return;
       }
 
-      // -------------------------------------------------------
-      // 429 — rate limited / OTP cooldown.
+      // ------------------------------------------------
+      // 429 — rate limited.
       //
-      // Prefer the Retry-After header when present; otherwise
-      // show the backend's detail as-is.
-      // -------------------------------------------------------
+      // Backend owns the copy AND the cooldown value
+      // via `detail` + `Retry-After`.
+      // ------------------------------------------------
       if (status === 429) {
-        const retryAfterHeader = error.response?.headers?.["retry-after"];
-        const parsed = retryAfterHeader
-          ? parseInt(String(retryAfterHeader), 10)
-          : NaN;
-        const retryAfterSeconds =
-          Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+        if (!backendMessage) {
+          // eslint-disable-next-line no-console
+          console.error(
+            "Backend returned 429 without `detail`. " +
+              "Contract violation.",
+          );
+        }
 
-        setErrorMessage(
-          typeof detail === "string"
-            ? detail
-            : retryAfterSeconds
-              ? `Please wait ${retryAfterSeconds}s before requesting another code.`
-              : "Please wait before requesting another code."
-        );
+        const msg = backendMessage ?? "Too many requests.";
+        setErrorMessage(msg);
+        onError?.(msg, status);
 
+        const retryAfterSeconds = extractRetryAfter(error);
         if (retryAfterSeconds !== null) {
           setCooldown(retryAfterSeconds);
         }
         return;
       }
 
-      // -------------------------------------------------------
-      // 422 — validation. Show the first backend message.
-      // -------------------------------------------------------
-      if (status === 422 && Array.isArray(detail)) {
-        const first = detail[0] as { msg?: string } | undefined;
-        setErrorMessage(first?.msg ?? "Invalid request.");
-        return;
-      }
+      // ------------------------------------------------
+      // All other statuses (422, 500, etc.)
+      //
+      // Backend detail is authoritative. Only fall back
+      // when the backend gave us nothing (e.g. reverse
+      // proxy returned a bare 502 HTML page).
+      // ------------------------------------------------
+      const msg =
+        backendMessage ??
+        `Request failed${status ? ` (${status})` : ""}.`;
 
-      // -------------------------------------------------------
-      // Everything else: trust backend detail.
-      // -------------------------------------------------------
-      setErrorMessage(
-        typeof detail === "string"
-          ? detail
-          : `Unable to resend code${
-              status ? ` (${status})` : ""
-            }. Please try again.`
-      );
+      setErrorMessage(msg);
+      onError?.(msg, status);
+
     } finally {
       if (mountedRef.current) setIsSending(false);
+      if (abortRef.current === controller) {
+        abortRef.current = null;
+      }
     }
-  };
+  }, [
+    email,
+    accountToken,
+    otpType,
+    cooldownSeconds,
+    cooldown,
+    isSending,
+    disabled,
+    onSessionExpired,
+    onSuccess,
+    onError,
+  ]);
 
 
   // ---------------------------------------------------------
@@ -230,7 +338,6 @@ const ResendOtp = ({
 
   return (
     <div className="d-flex flex-column gap-2">
-
       <Button
         variant="link"
         className="p-0 text-decoration-none align-self-center"
@@ -257,7 +364,6 @@ const ResendOtp = ({
         )}
       </Button>
 
-      {/* Live region for screen readers */}
       <div aria-live="polite" aria-atomic="true">
         {successMessage && (
           <Alert variant="info" className="mb-0 py-2 small text-center">
