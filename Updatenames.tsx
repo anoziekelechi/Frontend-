@@ -1,8 +1,4 @@
 
-
-
-
-
 // src/pages/user/ChangeName.tsx
 
 import { useEffect, useRef, useState } from "react";
