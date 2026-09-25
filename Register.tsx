@@ -1,124 +1,221 @@
 
-async def generate_and_send_otp(
-    user: User,
-    otp_type: str,
-    subject: str,
-    redis: Redis,
-    mailer: FastMail,
-    db: AsyncSession,
-    background_tasks: BackgroundTasks,
-    override_email: str | None = None,
-) -> None:
-    """
-    Generate OTP, store its SHA-256 hash in Redis, then queue the email.
+// src/pages/RegisterVerify.tsx
 
-    Redis key:
-        otp:{user_id}:{otp_type}
+import { useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate, Navigate } from "react-router-dom";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import axios from "axios";
 
-    Redis value:
-        SHA-256(otp)
+import Form from "react-bootstrap/Form";
+import Button from "react-bootstrap/Button";
+import Container from "react-bootstrap/Container";
+import Alert from "react-bootstrap/Alert";
 
-    Supported types:
-        registration
-        login
-        email_change
-        change_password
-        password_reset
-    """
+import api from "@/api/client";
+import OtpCountdown from "@/components/auth/OtpCountdown";
+import OtpResendPanel from "@/components/auth/OtpResendPanel";
+import { useOtpSession } from "@/hooks/useOtpSession";
+import type { VerifyOtpRequest, VerifyRegistrationResponse } from "@/types";
 
-    allowed = {
-        "registration",
-        "login",
-        "email_change",
-        "change_password",
-        "password_reset",
+const schema = z.object({
+  otp_code: z
+    .string()
+    .length(6, "OTP must be exactly 6 digits")
+    .regex(/^\d{6}$/, "OTP must contain numbers only"),
+});
+type FormData = z.infer<typeof schema>;
+
+const RegisterVerify = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const { email, reg_token, otp_attempts_used, otp_expires_in_seconds } =
+    (location.state || {}) as {
+      email?: string;
+      reg_token?: string;
+      otp_attempts_used?: number;
+      otp_expires_in_seconds?: number;
+    };
+
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const redirectRef = useRef<{ path: string; delayMs: number } | null>(null);
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+    setError,
+    reset,
+  } = useForm<FormData>({
+    resolver: zodResolver(schema),
+    defaultValues: { otp_code: "" },
+  });
+
+  const session = useOtpSession({
+    email: email ?? "",
+    accountToken: reg_token ?? "",
+    otpType: "registration",
+    initialAttemptsUsed: otp_attempts_used ?? 1,
+    initialSecondsLeft: otp_expires_in_seconds,
+  });
+
+  useEffect(() => {
+    const p = redirectRef.current;
+    if (!p) return;
+    const id = window.setTimeout(
+      () => navigate(p.path, { replace: true }),
+      p.delayMs
+    );
+    return () => window.clearTimeout(id);
+  }, [successMessage, serverError, navigate]);
+
+  if (!email || !reg_token) return <Navigate to="/register" replace />;
+
+  const onSubmit = async (data: FormData) => {
+    setServerError(null);
+    setSuccessMessage(null);
+    redirectRef.current = null;
+
+    const payload: VerifyOtpRequest = {
+      email,
+      account_token: reg_token,
+      otp_code: data.otp_code,
+    };
+
+    try {
+      const res = await api.post<VerifyRegistrationResponse>(
+        "/auth/register/verify",
+        payload
+      );
+      setSuccessMessage(res.data.message);
+      redirectRef.current = { path: "/login", delayMs: 1500 };
+    } catch (err) {
+      if (!axios.isAxiosError(err)) {
+        setServerError("An unexpected error occurred.");
+        return;
+      }
+      const status = err.response?.status;
+      const detail = err.response?.data?.detail;
+
+      if (status === 422 && Array.isArray(detail)) {
+        detail.forEach((item: unknown) => {
+          if (typeof item !== "object" || item === null) return;
+          const v = item as { loc?: unknown[]; msg?: string };
+          const field = v.loc?.[v.loc.length - 1];
+          if (field === "otp_code" && v.msg) {
+            setError("otp_code", { type: "server", message: v.msg });
+          }
+        });
+        return;
+      }
+
+      if (status === 400) {
+        setServerError(
+          typeof detail === "string"
+            ? detail
+            : "Session expired. Please register again."
+        );
+        redirectRef.current = { path: "/register", delayMs: 2000 };
+        return;
+      }
+
+      if (status === 401) {
+        setServerError(
+          typeof detail === "string" ? detail : "OTP expired or invalid."
+        );
+        reset({ otp_code: "" });
+        return;
+      }
+
+      setServerError(
+        typeof detail === "string"
+          ? detail
+          : `Verification failed${status ? ` (${status})` : ""}. Please try again.`
+      );
     }
+  };
 
-    if otp_type not in allowed:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Unsupported OTP type",
-        )
+  return (
+    <Container className="py-5" style={{ maxWidth: 480 }}>
+      <div className="bg-white p-4 rounded shadow-sm text-center">
+        <h1 className="h3 mb-2">Verify Your Account</h1>
+        <p className="text-muted mb-3">
+          We sent a 6-digit code to
+          <br />
+          <strong>{email}</strong>
+        </p>
 
-    user_id = get_user_id(user)
-    #user =get
+        <OtpCountdown
+          secondsLeft={session.secondsLeft}
+          isExpired={session.isExpired}
+        />
 
-    # =========================================================================
-    # RATE LIMIT
-    # =========================================================================
+        {successMessage && (
+          <Alert variant="success">
+            {successMessage}
+            <div className="small mt-1">Redirecting to login...</div>
+          </Alert>
+        )}
+        {serverError && <Alert variant="danger">{serverError}</Alert>}
 
-    rate_key = f"otp_rate:{user_id}:{otp_type}"
+        <Form onSubmit={handleSubmit(onSubmit)} noValidate>
+          <Form.Group className="mb-4" controlId="otp_code">
+            <Form.Label>Verification Code</Form.Label>
+            <Form.Control
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              autoFocus
+              placeholder="000000"
+              className="text-center fs-3"
+              isInvalid={!!errors.otp_code}
+              disabled={
+                session.isExpired ||
+                session.isExhausted ||
+                successMessage !== null
+              }
+              {...register("otp_code")}
+            />
+            <Form.Control.Feedback type="invalid">
+              {errors.otp_code?.message}
+            </Form.Control.Feedback>
+          </Form.Group>
 
-    count = await redis.incr(rate_key)
+          <Button
+            type="submit"
+            variant="primary"
+            className="w-100"
+            disabled={
+              isSubmitting ||
+              session.isExpired ||
+              session.isExhausted ||
+              successMessage !== null
+            }
+          >
+            {isSubmitting ? "Verifying..." : "Verify Account"}
+          </Button>
+        </Form>
 
-    if count == 1:
-        await redis.expire(
-            rate_key,
-            OTP_RATE_WINDOW,
-        )
+        <div className="mt-4">
+          <OtpResendPanel
+            attemptsUsed={session.attemptsUsed}
+            attemptsLimit={session.attemptsLimit}
+            isExhausted={session.isExhausted}
+            isResending={session.isResending}
+            resendMessage={session.resendMessage}
+            resendError={session.resendError}
+            retryAfterSeconds={session.retryAfterSeconds}
+            onResend={session.resend}
+            disabled={successMessage !== null}
+          />
+        </div>
+      </div>
+    </Container>
+  );
+};
 
-    if count > OTP_RATE_LIMIT:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many OTP requests. Try again in 1 hour.",
-        )
-
-    # =========================================================================
-    # GENERATE OTP
-    # =========================================================================
-
-    otp = generate_otp()
-    otp_hash = hash_otp(otp)
-
-    otp_key = f"otp:{user_id}:{otp_type}"
-
-    # =========================================================================
-    # STORE HASH
-    #
-    # SET overwrites any previous OTP for this user + type.
-    #
-    # Therefore:
-    #
-    # old OTP → immediately invalid
-    # new OTP → becomes the only valid OTP
-    # =========================================================================
-
-    await redis.set(
-        otp_key,
-        otp_hash,
-        ex=int(
-            timedelta(
-                minutes=OTP_EXPIRE_MINUTES
-            ).total_seconds()
-        ),
-    )
-
-    recipient = (
-        override_email
-        if override_email is not None
-        else user.email
-    )
-
-    logger.info(
-        "OTP stored for user_id=%s (type=%s). "
-        "Queuing email...",
-        user_id,
-        otp_type,
-    )
-
-    # =========================================================================
-    # QUEUE EMAIL
-    #
-    # Plaintext OTP exists only in application memory.
-    # It is never stored in Redis.
-    # =========================================================================
-
-    background_tasks.add_task(
-        send_otp,
-        email=recipient,
-        otp=otp,
-        subject=subject,
-        otp_type=otp_type,
-        mailer=mailer,
-        db=db,
-    )
+export default RegisterVerify;
