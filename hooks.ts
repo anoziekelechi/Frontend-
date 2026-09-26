@@ -1,3 +1,9 @@
+Already included file name '/Users/anoziekelechi/Ecommerce/frontend/src/hooks/useOtpSession.ts' differs from file name '/Users/anoziekelechi/Ecommerce/frontend/src/hooks/UseOtpSession.ts' only in casing.
+  The file is in the program because:
+    Imported via "@/hooks/useOtpSession" from file '/Users/anoziekelechi/Ecommerce/frontend/src/pages/users/RegisterVerify.tsx'
+    Matched by include pattern 'src' in '/Users/anoziekelechi/Ecommerce/frontend/tsconfig.app.json'ts(1261)
+tsconfig.app.json(34, 15): File is matched by include pattern specified here.
+module "/Users/anoziekelechi/Ecommerce/frontend/src/hooks/useOtpSession"
 
 // src/hooks/useOtpConfig.ts
 
