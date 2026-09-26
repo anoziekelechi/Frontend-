@@ -1,3 +1,129 @@
+
+// src/hooks/useOtpConfig.ts
+
+import { useEffect, useState } from "react";
+
+import api from "@/api/client";
+import type { OtpConfig } from "@/types";
+
+
+// =============================================================
+// MODULE-LEVEL CACHE
+//
+// The OTP config is identical for every user of the app, so
+// fetching it once per session is sufficient. We cache it at
+// module scope so:
+//
+//   1. The first mount triggers the network request.
+//   2. Every subsequent mount reads from cache instantly.
+//   3. Concurrent mounts during the in-flight request share
+//      the same promise (no duplicate requests).
+// =============================================================
+
+let cachedConfig: OtpConfig | null = null;
+let inflight: Promise<OtpConfig> | null = null;
+
+
+async function fetchOtpConfig(): Promise<OtpConfig> {
+  // Cache hit — return immediately.
+  if (cachedConfig) return cachedConfig;
+
+  // Request already in flight — reuse the same promise.
+  if (inflight) return inflight;
+
+  // Start a fresh request and memoize its promise.
+  inflight = api
+    .get<OtpConfig>("/auth/otp-config")
+    .then((res) => {
+      cachedConfig = res.data;
+      return res.data;
+    })
+    .finally(() => {
+      // Clear the in-flight reference whether we succeeded or failed,
+      // so a retry after failure doesn't hang on a stale promise.
+      inflight = null;
+    });
+
+  return inflight;
+}
+
+
+/**
+ * Return the public OTP configuration (expiry, rate limits, windows).
+ *
+ * Values come from the backend `GET /auth/otp-config` endpoint,
+ * which mirrors the server-side settings. This keeps the frontend
+ * countdown and attempts counters in sync with the actual backend
+ * limits without hardcoding any numbers in the UI.
+ *
+ * Caching:
+ *   - Module-level cache — fetched once per browser session.
+ *   - Concurrent consumers share a single in-flight request.
+ *   - No refetch on remount; call `reloadOtpConfig()` if you
+ *     ever need to force a refresh.
+ */
+export function useOtpConfig() {
+  const [config, setConfig] = useState<OtpConfig | null>(cachedConfig);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Already resolved — nothing to do.
+    if (cachedConfig) {
+      setConfig(cachedConfig);
+      return;
+    }
+
+    let mounted = true;
+
+    fetchOtpConfig()
+      .then((c) => {
+        if (mounted) {
+          setConfig(c);
+          setError(null);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!mounted) return;
+
+        // Best-effort error message — trust backend detail if
+        // the response is structured, otherwise fall back to a
+        // generic string. Config fetch failures should never
+        // block the page; consumers use a defensive fallback.
+        const detail =
+          err &&
+          typeof err === "object" &&
+          "response" in err &&
+          (err as { response?: { data?: { detail?: unknown } } }).response
+            ?.data?.detail;
+
+        setError(
+          typeof detail === "string"
+            ? detail
+            : "Unable to load OTP configuration."
+        );
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  return { config, error };
+}
+
+
+/**
+ * Force a fresh fetch on the next mount.
+ * Useful in tests or when you know the backend config has changed.
+ */
+export function invalidateOtpConfigCache(): void {
+  cachedConfig = null;
+  inflight = null;
+}
+
+
+
+
 // src/lib/time.ts
 
 /**
