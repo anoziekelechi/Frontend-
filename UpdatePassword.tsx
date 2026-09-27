@@ -1,7 +1,3 @@
-// updated to redirect user to login page backend must revoke all users tokens too
-
-
-
 // src/pages/users/ConfirmPasswordChange.tsx
 
 import { useEffect, useRef, useState } from "react";
@@ -60,9 +56,7 @@ const ConfirmPasswordChange = () => {
 
   const [serverError, setServerError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const redirectRef = useRef<{ run: () => void; delayMs: number } | null>(
-    null
-  );
+  const redirectRef = useRef<{ run: () => void; delayMs: number } | null>(null);
 
   const {
     register,
@@ -87,7 +81,6 @@ const ConfirmPasswordChange = () => {
     initialSecondsLeft: otp_expires_in_seconds,
   });
 
-  // Cancelable redirect
   useEffect(() => {
     const p = redirectRef.current;
     if (!p) return;
@@ -129,15 +122,13 @@ const ConfirmPasswordChange = () => {
       setSuccessMessage(res.data.message);
 
       // Password change revoked all refresh tokens server-side.
-      // Log out cleanly so the AuthContext doesn't hold a dead
-      // session, then redirect to login.
       redirectRef.current = {
         delayMs: 2000,
         run: async () => {
           try {
             await logout();
           } catch {
-            // Cookies are already invalid server-side; ignore.
+            // Cookies already invalid server-side.
           }
           navigate("/login", {
             replace: true,
@@ -153,6 +144,7 @@ const ConfirmPasswordChange = () => {
       const status = err.response?.status;
       const detail = err.response?.data?.detail;
 
+      // 422 — field-level
       if (status === 422 && Array.isArray(detail)) {
         detail.forEach((item: unknown) => {
           if (typeof item !== "object" || item === null) return;
@@ -165,10 +157,21 @@ const ConfirmPasswordChange = () => {
         return;
       }
 
+      // 400 — session expired (navigate) OR same-password (field error).
+      // We branch on STATUS + whether the detail mentions "session",
+      // but the copy always comes from the backend.
       if (status === 400) {
         const msg = typeof detail === "string" ? detail : "";
-        if (msg.toLowerCase().includes("session")) {
-          setServerError(msg || "Session expired. Please start over.");
+        const looksLikeSession =
+          msg.toLowerCase().includes("session") ||
+          msg.toLowerCase().includes("expired");
+
+        if (looksLikeSession) {
+          setServerError(
+            typeof detail === "string"
+              ? detail
+              : `Request failed (${status}).`
+          );
           redirectRef.current = {
             delayMs: 2000,
             run: () =>
@@ -177,23 +180,32 @@ const ConfirmPasswordChange = () => {
         } else {
           setError("new_password", {
             type: "server",
-            message: msg || "New password must be different.",
+            message:
+              typeof detail === "string"
+                ? detail
+                : `Request failed (${status}).`,
           });
         }
         return;
       }
 
+      // 401 — OTP invalid
       if (status === 401) {
         setServerError(
-          typeof detail === "string" ? detail : "OTP expired or invalid."
+          typeof detail === "string"
+            ? detail
+            : `Request failed (${status}).`
         );
         reset((prev) => ({ ...prev, otp_code: "" }));
         return;
       }
 
+      // 403 — account state changed
       if (status === 403) {
         setServerError(
-          typeof detail === "string" ? detail : "Account state changed."
+          typeof detail === "string"
+            ? detail
+            : `Request failed (${status}).`
         );
         redirectRef.current = {
           delayMs: 2000,
@@ -205,7 +217,7 @@ const ConfirmPasswordChange = () => {
       setServerError(
         typeof detail === "string"
           ? detail
-          : `Request failed${status ? ` (${status})` : ""}. Please try again.`
+          : `Request failed (${status ?? "unknown"}).`
       );
     }
   };
