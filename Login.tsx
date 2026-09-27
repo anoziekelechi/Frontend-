@@ -1,3 +1,377 @@
+// src/pages/Login.tsx
+
+import { useEffect, useRef, useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { Link, useLocation, useNavigate, Navigate } from "react-router-dom";
+import axios from "axios";
+
+import Form from "react-bootstrap/Form";
+import Button from "react-bootstrap/Button";
+import Container from "react-bootstrap/Container";
+import Alert from "react-bootstrap/Alert";
+import Spinner from "react-bootstrap/Spinner";
+
+import api from "@/api/client";
+import { useAuth } from "@/context/AuthContext";
+import { humanizeSeconds } from "@/lib/time";
+import type {
+  LoginResponse,
+  ResendVerificationRequest,
+  ResendVerificationResponse,
+} from "@/types";
+
+const schema = z.object({
+  email: z.string().trim().email("Please enter a valid email address"),
+  password: z.string().min(1, "Password is required"),
+});
+type FormData = z.infer<typeof schema>;
+
+const Login = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { user, isLoading: authLoading } = useAuth();
+
+  // ---------------------------------------------------------
+  // Read hints passed from upstream flows
+  //   - ConfirmPasswordChange → { passwordChanged: true, email }
+  //   - VerifyEmailChange     → { emailChanged: true, email }
+  // ---------------------------------------------------------
+  const {
+    passwordChanged,
+    emailChanged,
+    email: suggestedEmail,
+  } = (location.state || {}) as {
+    passwordChanged?: boolean;
+    emailChanged?: boolean;
+    email?: string;
+  };
+
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [retryAfter, setRetryAfter] = useState<number | null>(null);
+
+  const redirectRef = useRef<{
+    path: string;
+    state?: Record<string, unknown>;
+    delayMs: number;
+  } | null>(null);
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+    setError,
+  } = useForm<FormData>({
+    resolver: zodResolver(schema),
+    defaultValues: {
+      email: suggestedEmail ?? "",
+      password: "",
+    },
+  });
+
+  // Cancelable redirect
+  useEffect(() => {
+    const p = redirectRef.current;
+    if (!p) return;
+    const id = window.setTimeout(() => {
+      navigate(p.path, { replace: true, state: p.state });
+    }, p.delayMs);
+    return () => window.clearTimeout(id);
+  }, [successMessage, serverError, navigate]);
+
+  // Retry-After countdown
+  useEffect(() => {
+    if (retryAfter === null || retryAfter <= 0) return;
+    const id = window.setInterval(() => {
+      setRetryAfter((s) => (s === null || s <= 1 ? null : s - 1));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [retryAfter]);
+
+  if (authLoading) {
+    return (
+      <Container className="py-5 text-center">
+        <Spinner animation="border" />
+        <p className="text-muted mt-2">Loading...</p>
+      </Container>
+    );
+  }
+  if (user) return <Navigate to="/profile" replace />;
+
+  const onSubmit = async (data: FormData) => {
+    setServerError(null);
+    setSuccessMessage(null);
+    setRetryAfter(null);
+    redirectRef.current = null;
+
+    const submittedEmail = data.email.trim().toLowerCase();
+
+    try {
+      const response = await api.post<LoginResponse>("/auth/login", {
+        email: submittedEmail,
+        password: data.password,
+      });
+
+      const body = response.data;
+
+      // ---------------------------------------------------
+      // DISABLED
+      // ---------------------------------------------------
+      if (body.status === "disabled") {
+        setServerError(body.message);
+        redirectRef.current = {
+          path: "/contact-admin",
+          state: { email: body.email ?? submittedEmail },
+          delayMs: 2000,
+        };
+        return;
+      }
+
+      // ---------------------------------------------------
+      // UNVERIFIED — auto-trigger resend, route to verify
+      // ---------------------------------------------------
+      if (body.status === "unverified") {
+        const verifiedEmail = body.email ?? submittedEmail;
+        setServerError(body.message);
+
+        try {
+          const resendPayload: ResendVerificationRequest = {
+            email: verifiedEmail,
+          };
+          const resendRes = await api.post<ResendVerificationResponse>(
+            "/auth/resend-verification",
+            resendPayload
+          );
+
+          redirectRef.current = {
+            path: "/register/verify",
+            state: {
+              email: resendRes.data.email,
+              reg_token: resendRes.data.reg_token,
+              otp_attempts_used: resendRes.data.otp_attempts_used,
+              otp_expires_in_seconds:
+                resendRes.data.otp_expires_in_seconds,
+            },
+            delayMs: 2000,
+          };
+          return;
+        } catch (resendErr) {
+          if (axios.isAxiosError(resendErr)) {
+            const rDetail = resendErr.response?.data?.detail;
+            if (typeof rDetail === "string") {
+              setServerError(rDetail);
+            }
+          }
+          redirectRef.current = { path: "/register", delayMs: 2500 };
+          return;
+        }
+      }
+
+      // ---------------------------------------------------
+      // OTP REQUIRED
+      // ---------------------------------------------------
+      if (body.status === "otp_required") {
+        setSuccessMessage(body.message);
+        redirectRef.current = {
+          path: "/login/verify",
+          state: {
+            email: body.email,
+            login_token: body.login_token,
+            otp_attempts_used: body.otp_attempts_used,
+            otp_expires_in_seconds: body.otp_expires_in_seconds,
+          },
+          delayMs: 1200,
+        };
+        return;
+      }
+
+      setServerError("Unexpected response from server.");
+    } catch (err) {
+      if (!axios.isAxiosError(err)) {
+        setServerError("An unexpected error occurred.");
+        return;
+      }
+      const status = err.response?.status;
+      const detail = err.response?.data?.detail;
+
+      // 422 — Pydantic validation
+      if (status === 422 && Array.isArray(detail)) {
+        detail.forEach((item: unknown) => {
+          if (typeof item !== "object" || item === null) return;
+          const v = item as { loc?: unknown[]; msg?: string };
+          const field = v.loc?.[v.loc.length - 1];
+          if ((field === "email" || field === "password") && v.msg) {
+            setError(field, { type: "server", message: v.msg });
+          }
+        });
+        return;
+      }
+
+      // 401 — invalid credentials
+      if (status === 401) {
+        setServerError(
+          typeof detail === "string" ? detail : "Invalid credentials."
+        );
+        return;
+      }
+
+      // 429 — rate limit
+      if (status === 429) {
+        const header = err.response?.headers?.["retry-after"];
+        const parsed = header ? parseInt(String(header), 10) : NaN;
+        const seconds = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+        setRetryAfter(seconds);
+        setServerError(
+          typeof detail === "string"
+            ? detail
+            : "Too many login attempts. Please try again later."
+        );
+        return;
+      }
+
+      // 403 — already logged in
+      if (status === 403) {
+        setServerError(
+          typeof detail === "string" ? detail : "Already logged in."
+        );
+        redirectRef.current = { path: "/profile", delayMs: 2000 };
+        return;
+      }
+
+      setServerError(
+        typeof detail === "string"
+          ? detail
+          : `Login failed${status ? ` (${status})` : ""}. Please try again.`
+      );
+    }
+  };
+
+  const submitDisabled =
+    isSubmitting ||
+    successMessage !== null ||
+    (retryAfter !== null && retryAfter > 0);
+
+  return (
+    <Container className="py-5" style={{ maxWidth: 480 }}>
+      <div className="bg-white p-4 rounded shadow-sm">
+        <h1 className="h3 text-center mb-4">Welcome Back</h1>
+
+        {/* =====================================================
+            GREETING BANNERS — from upstream flows
+        ===================================================== */}
+        {passwordChanged && (
+          <Alert variant="success" className="text-center">
+            Password changed successfully. Please log in with your new
+            password.
+          </Alert>
+        )}
+
+        {emailChanged && (
+          <Alert variant="success" className="text-center">
+            Email address updated. Please log in again.
+          </Alert>
+        )}
+
+        {/* =====================================================
+            RUNTIME FEEDBACK
+        ===================================================== */}
+        {successMessage && (
+          <Alert variant="success" className="text-center">
+            {successMessage}
+            <div className="small mt-1">Redirecting to verification...</div>
+          </Alert>
+        )}
+
+        {serverError && (
+          <Alert variant="danger" className="text-center">
+            {serverError}
+            {retryAfter !== null && retryAfter > 0 && (
+              <div className="small mt-1">
+                You can try again in {humanizeSeconds(retryAfter)}.
+              </div>
+            )}
+            {redirectRef.current?.path === "/register/verify" && (
+              <div className="small mt-1">
+                Sending a fresh verification code...
+              </div>
+            )}
+          </Alert>
+        )}
+
+        <Form onSubmit={handleSubmit(onSubmit)} noValidate>
+          <Form.Group className="mb-3" controlId="email">
+            <Form.Label>Email</Form.Label>
+            <Form.Control
+              type="email"
+              autoComplete="email"
+              placeholder="Enter your email"
+              isInvalid={!!errors.email}
+              disabled={isSubmitting || successMessage !== null}
+              {...register("email")}
+            />
+            <Form.Control.Feedback type="invalid">
+              {errors.email?.message}
+            </Form.Control.Feedback>
+          </Form.Group>
+
+          <Form.Group className="mb-4" controlId="password">
+            <Form.Label>Password</Form.Label>
+            <Form.Control
+              type="password"
+              autoComplete="current-password"
+              placeholder="Enter your password"
+              isInvalid={!!errors.password}
+              disabled={isSubmitting || successMessage !== null}
+              {...register("password")}
+            />
+            <Form.Control.Feedback type="invalid">
+              {errors.password?.message}
+            </Form.Control.Feedback>
+          </Form.Group>
+
+          <Button
+            type="submit"
+            variant="primary"
+            className="w-100"
+            disabled={submitDisabled}
+          >
+            {isSubmitting ? (
+              <>
+                <Spinner
+                  as="span"
+                  animation="border"
+                  size="sm"
+                  role="status"
+                  aria-hidden="true"
+                  className="me-2"
+                />
+                Checking...
+              </>
+            ) : retryAfter !== null && retryAfter > 0 ? (
+              `Try again in ${humanizeSeconds(retryAfter)}`
+            ) : (
+              "Continue"
+            )}
+          </Button>
+        </Form>
+
+        <div className="d-flex justify-content-between mt-4 small">
+          <Link to="/register">Register</Link>
+          <Link to="/password/reset">Forgot password?</Link>
+        </div>
+      </div>
+    </Container>
+  );
+};
+
+export default Login;
+
+
+
+
+
 // src/pages/VerifyLogin.tsx
 
 import { useEffect, useRef, useState } from "react";
@@ -309,350 +683,3 @@ const VerifyLogin = () => {
 export default VerifyLogin;
 
 
-
-
-
-
-
-
-
-// src/pages/Login.tsx
-
-import { useEffect, useRef, useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { Link, useNavigate, Navigate } from "react-router-dom";
-import axios from "axios";
-
-import Form from "react-bootstrap/Form";
-import Button from "react-bootstrap/Button";
-import Container from "react-bootstrap/Container";
-import Alert from "react-bootstrap/Alert";
-import Spinner from "react-bootstrap/Spinner";
-
-import api from "@/api/client";
-import { useAuth } from "@/context/AuthContext";
-import { humanizeSeconds } from "@/lib/time";
-import type {
-  LoginResponse,
-  ResendVerificationRequest,
-  ResendVerificationResponse,
-} from "@/types";
-
-const schema = z.object({
-  email: z.string().trim().email("Please enter a valid email address"),
-  password: z.string().min(1, "Password is required"),
-});
-type FormData = z.infer<typeof schema>;
-
-const Login = () => {
-  const navigate = useNavigate();
-  const { user, isLoading: authLoading } = useAuth();
-
-  const [serverError, setServerError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [retryAfter, setRetryAfter] = useState<number | null>(null);
-
-  const redirectRef = useRef<{
-    path: string;
-    state?: Record<string, unknown>;
-    delayMs: number;
-  } | null>(null);
-
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-    setError,
-  } = useForm<FormData>({
-    resolver: zodResolver(schema),
-    defaultValues: { email: "", password: "" },
-  });
-
-  // Cancelable redirect
-  useEffect(() => {
-    const p = redirectRef.current;
-    if (!p) return;
-    const id = window.setTimeout(() => {
-      navigate(p.path, { replace: true, state: p.state });
-    }, p.delayMs);
-    return () => window.clearTimeout(id);
-  }, [successMessage, serverError, navigate]);
-
-  // Retry-After countdown
-  useEffect(() => {
-    if (retryAfter === null || retryAfter <= 0) return;
-    const id = window.setInterval(() => {
-      setRetryAfter((s) => (s === null || s <= 1 ? null : s - 1));
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, [retryAfter]);
-
-  if (authLoading) {
-    return (
-      <Container className="py-5 text-center">
-        <Spinner animation="border" />
-        <p className="text-muted mt-2">Loading...</p>
-      </Container>
-    );
-  }
-  if (user) return <Navigate to="/profile" replace />;
-
-  const onSubmit = async (data: FormData) => {
-    setServerError(null);
-    setSuccessMessage(null);
-    setRetryAfter(null);
-    redirectRef.current = null;
-
-    const submittedEmail = data.email.trim().toLowerCase();
-
-    try {
-      const response = await api.post<LoginResponse>("/auth/login", {
-        email: submittedEmail,
-        password: data.password,
-      });
-
-      const body = response.data;
-
-      // ---------------------------------------------------
-      // DISABLED
-      // ---------------------------------------------------
-      if (body.status === "disabled") {
-        setServerError(body.message);
-        redirectRef.current = {
-          path: "/contact-admin",
-          state: { email: body.email ?? submittedEmail },
-          delayMs: 2000,
-        };
-        return;
-      }
-
-      // ---------------------------------------------------
-      // UNVERIFIED — auto-trigger resend and route to verify
-      // ---------------------------------------------------
-      if (body.status === "unverified") {
-        const verifiedEmail = body.email ?? submittedEmail;
-
-        // Show the backend message while we trigger the resend
-        setServerError(body.message);
-
-        try {
-          const resendPayload: ResendVerificationRequest = {
-            email: verifiedEmail,
-          };
-          const resendRes =
-            await api.post<ResendVerificationResponse>(
-              "/auth/resend-verification",
-              resendPayload
-            );
-
-          // Success → route to verify with fresh token
-          redirectRef.current = {
-            path: "/register/verify",
-            state: {
-              email: resendRes.data.email,
-              reg_token: resendRes.data.reg_token,
-              otp_attempts_used: resendRes.data.otp_attempts_used,
-              otp_expires_in_seconds: resendRes.data.otp_expires_in_seconds,
-            },
-            delayMs: 2000,
-          };
-          return;
-        } catch (resendErr) {
-          // Resend failed (429, network, etc).
-          // Route to /register so the user can re-register or
-          // trigger a fresh verification from there.
-          if (axios.isAxiosError(resendErr)) {
-            const rDetail = resendErr.response?.data?.detail;
-            if (typeof rDetail === "string") {
-              setServerError(rDetail);
-            }
-          }
-          redirectRef.current = {
-            path: "/register",
-            delayMs: 2500,
-          };
-          return;
-        }
-      }
-
-      // ---------------------------------------------------
-      // OTP REQUIRED
-      // ---------------------------------------------------
-      if (body.status === "otp_required") {
-        setSuccessMessage(body.message);
-        redirectRef.current = {
-          path: "/login/verify",
-          state: {
-            email: body.email,
-            login_token: body.login_token,
-            otp_attempts_used: body.otp_attempts_used,
-            otp_expires_in_seconds: body.otp_expires_in_seconds,
-          },
-          delayMs: 1200,
-        };
-        return;
-      }
-
-      setServerError("Unexpected response from server.");
-    } catch (err) {
-      if (!axios.isAxiosError(err)) {
-        setServerError("An unexpected error occurred.");
-        return;
-      }
-      const status = err.response?.status;
-      const detail = err.response?.data?.detail;
-
-      // 422 — Pydantic validation
-      if (status === 422 && Array.isArray(detail)) {
-        detail.forEach((item: unknown) => {
-          if (typeof item !== "object" || item === null) return;
-          const v = item as { loc?: unknown[]; msg?: string };
-          const field = v.loc?.[v.loc.length - 1];
-          if ((field === "email" || field === "password") && v.msg) {
-            setError(field, { type: "server", message: v.msg });
-          }
-        });
-        return;
-      }
-
-      // 401 — invalid credentials
-      if (status === 401) {
-        setServerError(
-          typeof detail === "string" ? detail : "Invalid credentials."
-        );
-        return;
-      }
-
-      // 429 — rate limit
-      if (status === 429) {
-        const header = err.response?.headers?.["retry-after"];
-        const parsed = header ? parseInt(String(header), 10) : NaN;
-        const seconds = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-        setRetryAfter(seconds);
-        setServerError(
-          typeof detail === "string"
-            ? detail
-            : "Too many login attempts. Please try again later."
-        );
-        return;
-      }
-
-      // 403 — already logged in
-      if (status === 403) {
-        setServerError(
-          typeof detail === "string" ? detail : "Already logged in."
-        );
-        redirectRef.current = { path: "/profile", delayMs: 2000 };
-        return;
-      }
-
-      setServerError(
-        typeof detail === "string"
-          ? detail
-          : `Login failed${status ? ` (${status})` : ""}. Please try again.`
-      );
-    }
-  };
-
-  const submitDisabled =
-    isSubmitting ||
-    successMessage !== null ||
-    (retryAfter !== null && retryAfter > 0);
-
-  return (
-    <Container className="py-5" style={{ maxWidth: 480 }}>
-      <div className="bg-white p-4 rounded shadow-sm">
-        <h1 className="h3 text-center mb-4">Welcome Back</h1>
-
-        {successMessage && (
-          <Alert variant="success" className="text-center">
-            {successMessage}
-            <div className="small mt-1">Redirecting to verification...</div>
-          </Alert>
-        )}
-
-        {serverError && (
-          <Alert variant="danger" className="text-center">
-            {serverError}
-            {retryAfter !== null && retryAfter > 0 && (
-              <div className="small mt-1">
-                You can try again in {humanizeSeconds(retryAfter)}.
-              </div>
-            )}
-            {redirectRef.current?.path === "/register/verify" && (
-              <div className="small mt-1">
-                Sending a fresh verification code...
-              </div>
-            )}
-          </Alert>
-        )}
-
-        <Form onSubmit={handleSubmit(onSubmit)} noValidate>
-          <Form.Group className="mb-3" controlId="email">
-            <Form.Label>Email</Form.Label>
-            <Form.Control
-              type="email"
-              autoComplete="email"
-              placeholder="Enter your email"
-              isInvalid={!!errors.email}
-              disabled={isSubmitting || successMessage !== null}
-              {...register("email")}
-            />
-            <Form.Control.Feedback type="invalid">
-              {errors.email?.message}
-            </Form.Control.Feedback>
-          </Form.Group>
-
-          <Form.Group className="mb-4" controlId="password">
-            <Form.Label>Password</Form.Label>
-            <Form.Control
-              type="password"
-              autoComplete="current-password"
-              placeholder="Enter your password"
-              isInvalid={!!errors.password}
-              disabled={isSubmitting || successMessage !== null}
-              {...register("password")}
-            />
-            <Form.Control.Feedback type="invalid">
-              {errors.password?.message}
-            </Form.Control.Feedback>
-          </Form.Group>
-
-          <Button
-            type="submit"
-            variant="primary"
-            className="w-100"
-            disabled={submitDisabled}
-          >
-            {isSubmitting ? (
-              <>
-                <Spinner
-                  as="span"
-                  animation="border"
-                  size="sm"
-                  role="status"
-                  aria-hidden="true"
-                  className="me-2"
-                />
-                Checking...
-              </>
-            ) : retryAfter !== null && retryAfter > 0 ? (
-              `Try again in ${humanizeSeconds(retryAfter)}`
-            ) : (
-              "Continue"
-            )}
-          </Button>
-        </Form>
-
-        <div className="d-flex justify-content-between mt-4 small">
-          <Link to="/register">Register</Link>
-          <Link to="/password/reset">Forgot password?</Link>
-        </div>
-      </div>
-    </Container>
-  );
-};
-
-export default Login;
