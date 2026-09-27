@@ -1,4 +1,3 @@
-
 // src/pages/ContactAdmin.tsx
 
 import { useEffect, useRef, useState } from "react";
@@ -34,9 +33,7 @@ type FormData = z.infer<typeof schema>;
 const ContactAdmin = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { email: prefillEmail } = (location.state || {}) as {
-    email?: string;
-  };
+  const { email: prefillEmail } = (location.state || {}) as { email?: string };
 
   const [serverError, setServerError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -44,9 +41,7 @@ const ContactAdmin = () => {
   const redirectRef = useRef<{ path: string; delayMs: number } | null>(null);
 
   const {
-    register,
-    handleSubmit,
-    watch,
+    register, handleSubmit, watch,
     formState: { errors, isSubmitting },
     setError,
   } = useForm<FormData>({
@@ -59,10 +54,7 @@ const ContactAdmin = () => {
   useEffect(() => {
     const p = redirectRef.current;
     if (!p) return;
-    const id = window.setTimeout(
-      () => navigate(p.path, { replace: true }),
-      p.delayMs
-    );
+    const id = window.setTimeout(() => navigate(p.path, { replace: true }), p.delayMs);
     return () => window.clearTimeout(id);
   }, [successMessage, navigate]);
 
@@ -86,10 +78,7 @@ const ContactAdmin = () => {
     };
 
     try {
-      const res = await api.post<ContactAdminResponse>(
-        "/auth/contact-admin",
-        payload
-      );
+      const res = await api.post<ContactAdminResponse>("/auth/contact-admin", payload);
       setSuccessMessage(res.data.message);
       redirectRef.current = { path: "/home", delayMs: 4000 };
     } catch (err) {
@@ -118,9 +107,7 @@ const ContactAdmin = () => {
         const seconds = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
         setRetryAfter(seconds);
         setServerError(
-          typeof detail === "string"
-            ? detail
-            : "Too many requests. Please try again later."
+          typeof detail === "string" ? detail : `Request failed (${status}).`
         );
         return;
       }
@@ -128,15 +115,13 @@ const ContactAdmin = () => {
       setServerError(
         typeof detail === "string"
           ? detail
-          : `Request failed${status ? ` (${status})` : ""}. Please try again.`
+          : `Request failed (${status ?? "unknown"}).`
       );
     }
   };
 
   const submitDisabled =
-    isSubmitting ||
-    successMessage !== null ||
-    (retryAfter !== null && retryAfter > 0);
+    isSubmitting || successMessage !== null || (retryAfter !== null && retryAfter > 0);
 
   return (
     <Container className="py-5" style={{ maxWidth: 560 }}>
@@ -166,72 +151,35 @@ const ContactAdmin = () => {
         <Form onSubmit={handleSubmit(onSubmit)} noValidate>
           <Form.Group className="mb-3" controlId="email">
             <Form.Label>Your Email</Form.Label>
-            <Form.Control
-              type="email"
-              autoComplete="email"
-              placeholder="you@example.com"
-              isInvalid={!!errors.email}
-              disabled={isSubmitting || successMessage !== null}
-              {...register("email")}
-            />
-            <Form.Control.Feedback type="invalid">
-              {errors.email?.message}
-            </Form.Control.Feedback>
+            <Form.Control type="email" autoComplete="email" placeholder="you@example.com"
+              isInvalid={!!errors.email} disabled={isSubmitting || successMessage !== null}
+              {...register("email")} />
+            <Form.Control.Feedback type="invalid">{errors.email?.message}</Form.Control.Feedback>
           </Form.Group>
 
           <Form.Group className="mb-4" controlId="message">
             <Form.Label>Message</Form.Label>
-            <Form.Control
-              as="textarea"
-              rows={6}
-              placeholder="Describe your issue..."
-              isInvalid={!!errors.message}
-              disabled={isSubmitting || successMessage !== null}
-              maxLength={MESSAGE_MAX}
-              {...register("message")}
-            />
-            <Form.Control.Feedback type="invalid">
-              {errors.message?.message}
-            </Form.Control.Feedback>
+            <Form.Control as="textarea" rows={6} placeholder="Describe your issue..."
+              isInvalid={!!errors.message} disabled={isSubmitting || successMessage !== null}
+              maxLength={MESSAGE_MAX} {...register("message")} />
+            <Form.Control.Feedback type="invalid">{errors.message?.message}</Form.Control.Feedback>
             <div className="d-flex justify-content-between">
-              <Form.Text className="text-muted">
-                At least {MESSAGE_MIN} characters.
-              </Form.Text>
-              <Form.Text
-                className={
-                  messageValue.length >= MESSAGE_MAX
-                    ? "text-danger"
-                    : "text-muted"
-                }
-              >
+              <Form.Text className="text-muted">At least {MESSAGE_MIN} characters.</Form.Text>
+              <Form.Text className={messageValue.length >= MESSAGE_MAX ? "text-danger" : "text-muted"}>
                 {messageValue.length} / {MESSAGE_MAX}
               </Form.Text>
             </div>
           </Form.Group>
 
-          <Button
-            type="submit"
-            variant="primary"
-            className="w-100"
-            disabled={submitDisabled}
-          >
+          <Button type="submit" variant="primary" className="w-100" disabled={submitDisabled}>
             {isSubmitting ? (
               <>
-                <Spinner
-                  as="span"
-                  animation="border"
-                  size="sm"
-                  role="status"
-                  aria-hidden="true"
-                  className="me-2"
-                />
+                <Spinner as="span" animation="border" size="sm" role="status" aria-hidden="true" className="me-2" />
                 Sending...
               </>
             ) : retryAfter !== null && retryAfter > 0 ? (
               `Try again in ${humanizeSeconds(retryAfter)}`
-            ) : (
-              "Send Message"
-            )}
+            ) : "Send Message"}
           </Button>
         </Form>
 
