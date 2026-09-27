@@ -1,172 +1,8 @@
-
-          
-// src/pages/user/ChangePassword.tsx
-
-import { useEffect, useRef, useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { useNavigate, Navigate } from "react-router-dom";
-import axios from "axios";
-
-import Container from "react-bootstrap/Container";
-import Form from "react-bootstrap/Form";
-import Button from "react-bootstrap/Button";
-import Alert from "react-bootstrap/Alert";
-import Spinner from "react-bootstrap/Spinner";
-
-import api from "@/api/client";
-import { useAuth } from "@/context/AuthContext";
-import type { RequestPasswordChange, RequestPasswordChangeResponse } from "@/types";
-
-const schema = z.object({
-  current_password: z.string().min(1, "Current password is required"),
-});
-type FormData = z.infer<typeof schema>;
-
-const ChangePassword = () => {
-  const navigate = useNavigate();
-  const { user, isLoading: authLoading } = useAuth();
-
-  const [serverError, setServerError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const redirectRef = useRef<{ path: string; state?: Record<string, unknown>; delayMs: number } | null>(null);
-
-  const {
-    register, handleSubmit,
-    formState: { errors, isSubmitting },
-    setError, reset,
-  } = useForm<FormData>({ resolver: zodResolver(schema), defaultValues: { current_password: "" } });
-
-  useEffect(() => {
-    const p = redirectRef.current;
-    if (!p) return;
-    const id = window.setTimeout(() => {
-      navigate(p.path, { replace: true, state: p.state });
-    }, p.delayMs);
-    return () => window.clearTimeout(id);
-  }, [successMessage, navigate]);
-
-  if (authLoading) {
-    return (
-      <Container className="py-5 text-center">
-        <Spinner animation="border" />
-        <p className="text-muted mt-2">Loading...</p>
-      </Container>
-    );
-  }
-  if (!user) return <Navigate to="/login" replace />;
-
-  const onSubmit = async (data: FormData) => {
-    setServerError(null);
-    setSuccessMessage(null);
-    redirectRef.current = null;
-
-    const payload: RequestPasswordChange = { current_password: data.current_password };
-
-    try {
-      const res = await api.post<RequestPasswordChangeResponse>("/auth/password/request", payload);
-      reset();
-      setSuccessMessage(res.data.message);
-      redirectRef.current = {
-        path: "/profile/change-password/confirm",
-        state: {
-          email: user.email,
-          change_password_token: res.data.change_password_token,
-          otp_attempts_used: res.data.otp_attempts_used,
-          otp_expires_in_seconds: res.data.otp_expires_in_seconds,
-        },
-        delayMs: 1500,
-      };
-    } catch (err) {
-      if (!axios.isAxiosError(err)) { setServerError("An unexpected error occurred."); return; }
-      const status = err.response?.status;
-      const detail = err.response?.data?.detail;
-
-      if (status === 422 && Array.isArray(detail)) {
-        detail.forEach((item: unknown) => {
-          if (typeof item !== "object" || item === null) return;
-          const v = item as { loc?: unknown[]; msg?: string };
-          const field = v.loc?.[v.loc.length - 1];
-          if (field === "current_password" && v.msg) {
-            setError("current_password", { type: "server", message: v.msg });
-          }
-        });
-        return;
-      }
-
-      if (status === 401 && typeof detail === "string") {
-        setError("current_password", { type: "server", message: detail });
-        return;
-      }
-
-      setServerError(typeof detail === "string" ? detail
-        : `Request failed${status ? ` (${status})` : ""}. Please try again.`);
-    }
-  };
-
-  return (
-    <Container className="py-5" style={{ maxWidth: 560 }}>
-      <div className="bg-white p-4 rounded shadow-sm">
-        <h1 className="h3 mb-1">Change Password</h1>
-        <p className="text-muted small mb-4">
-          Confirm your current password. We'll email you a 6-digit code to verify the change.
-        </p>
-
-        {successMessage && (
-          <Alert variant="success" className="text-center">
-            {successMessage}
-            <div className="small mt-1">Redirecting to verification...</div>
-          </Alert>
-        )}
-        {serverError && <Alert variant="danger" className="text-center">{serverError}</Alert>}
-
-        <Form onSubmit={handleSubmit(onSubmit)} noValidate>
-          <Form.Group className="mb-4" controlId="current_password">
-            <Form.Label>Current Password</Form.Label>
-            <Form.Control type="password" autoComplete="current-password"
-              isInvalid={!!errors.current_password}
-              disabled={isSubmitting || successMessage !== null}
-              {...register("current_password")} />
-            <Form.Control.Feedback type="invalid">{errors.current_password?.message}</Form.Control.Feedback>
-          </Form.Group>
-
-          <div className="d-flex gap-2">
-            <Button type="submit" variant="primary"
-              disabled={isSubmitting || successMessage !== null}>
-              {isSubmitting ? (
-                <>
-                  <Spinner as="span" animation="border" size="sm" role="status" aria-hidden="true" className="me-2" />
-                  Sending...
-                </>
-              ) : "Send Verification Code"}
-            </Button>
-            <Button type="button" variant="outline-secondary"
-              disabled={isSubmitting || successMessage !== null}
-              onClick={() => navigate("/profile")}>
-              Cancel
-            </Button>
-          </div>
-        </Form>
-      </div>
-    </Container>
-  );
-};
-
-export default ChangePassword;
+// updated to redirect user to login page backend must revoke all users tokens too
 
 
 
-
-
-
-
-
-
-
-
-
-// src/pages/user/ConfirmPasswordChange.tsx
+// src/pages/users/ConfirmPasswordChange.tsx
 
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, Navigate } from "react-router-dom";
@@ -208,7 +44,7 @@ type FormData = z.infer<typeof schema>;
 const ConfirmPasswordChange = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, logout, isLoading: authLoading } = useAuth();
 
   const {
     email,
@@ -224,7 +60,9 @@ const ConfirmPasswordChange = () => {
 
   const [serverError, setServerError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const redirectRef = useRef<{ path: string; delayMs: number } | null>(null);
+  const redirectRef = useRef<{ run: () => void; delayMs: number } | null>(
+    null
+  );
 
   const {
     register,
@@ -249,15 +87,13 @@ const ConfirmPasswordChange = () => {
     initialSecondsLeft: otp_expires_in_seconds,
   });
 
+  // Cancelable redirect
   useEffect(() => {
     const p = redirectRef.current;
     if (!p) return;
-    const id = window.setTimeout(
-      () => navigate(p.path, { replace: true }),
-      p.delayMs
-    );
+    const id = window.setTimeout(() => p.run(), p.delayMs);
     return () => window.clearTimeout(id);
-  }, [successMessage, navigate]);
+  }, [successMessage, serverError, navigate]);
 
   if (authLoading) {
     return (
@@ -268,8 +104,9 @@ const ConfirmPasswordChange = () => {
     );
   }
   if (!user) return <Navigate to="/login" replace />;
-  if (!email || !change_password_token)
+  if (!email || !change_password_token) {
     return <Navigate to="/profile/change-password" replace />;
+  }
 
   const onSubmit = async (data: FormData) => {
     setServerError(null);
@@ -287,9 +124,27 @@ const ConfirmPasswordChange = () => {
         "/auth/password/confirm",
         payload
       );
+
       reset();
       setSuccessMessage(res.data.message);
-      redirectRef.current = { path: "/profile", delayMs: 2000 };
+
+      // Password change revoked all refresh tokens server-side.
+      // Log out cleanly so the AuthContext doesn't hold a dead
+      // session, then redirect to login.
+      redirectRef.current = {
+        delayMs: 2000,
+        run: async () => {
+          try {
+            await logout();
+          } catch {
+            // Cookies are already invalid server-side; ignore.
+          }
+          navigate("/login", {
+            replace: true,
+            state: { passwordChanged: true, email },
+          });
+        },
+      };
     } catch (err) {
       if (!axios.isAxiosError(err)) {
         setServerError("An unexpected error occurred.");
@@ -315,8 +170,9 @@ const ConfirmPasswordChange = () => {
         if (msg.toLowerCase().includes("session")) {
           setServerError(msg || "Session expired. Please start over.");
           redirectRef.current = {
-            path: "/profile/change-password",
             delayMs: 2000,
+            run: () =>
+              navigate("/profile/change-password", { replace: true }),
           };
         } else {
           setError("new_password", {
@@ -339,7 +195,10 @@ const ConfirmPasswordChange = () => {
         setServerError(
           typeof detail === "string" ? detail : "Account state changed."
         );
-        redirectRef.current = { path: "/profile", delayMs: 2000 };
+        redirectRef.current = {
+          delayMs: 2000,
+          run: () => navigate("/profile", { replace: true }),
+        };
         return;
       }
 
@@ -369,7 +228,7 @@ const ConfirmPasswordChange = () => {
         {successMessage && (
           <Alert variant="success">
             {successMessage}
-            <div className="small mt-1">Redirecting to profile...</div>
+            <div className="small mt-1">Redirecting to login...</div>
           </Alert>
         )}
         {serverError && <Alert variant="danger">{serverError}</Alert>}
