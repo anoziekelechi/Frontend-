@@ -1,5 +1,4 @@
-
-// src/pages/user/UpdateName.tsx
+// src/pages/users/UpdateName.tsx
 
 import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -24,7 +23,6 @@ const schema = z.object({
 });
 type FormData = z.infer<typeof schema>;
 
-/** Return only fields that differ from previous values (trimmed). */
 function changedStringFields<T extends Record<string, string | undefined>>(
   next: T,
   prev: Partial<T>
@@ -55,7 +53,10 @@ const UpdateName = () => {
     setError, reset,
   } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: { surname: user?.surname ?? "", othernames: user?.othernames ?? "" },
+    defaultValues: {
+      surname: user?.surname ?? "",
+      othernames: user?.othernames ?? "",
+    },
   });
 
   useEffect(() => {
@@ -92,11 +93,17 @@ const UpdateName = () => {
     try {
       const res = await api.patch<UpdateNamesResponse>("/auth/update_names", payload);
       setUser(res.data.user);
-      reset({ surname: res.data.user.surname, othernames: res.data.user.othernames });
+      reset({
+        surname: res.data.user.surname,
+        othernames: res.data.user.othernames,
+      });
       setSuccessMessage(res.data.message);
       redirectRef.current = { path: "/profile", delayMs: 1500 };
     } catch (err) {
-      if (!axios.isAxiosError(err)) { setServerError("An unexpected error occurred."); return; }
+      if (!axios.isAxiosError(err)) {
+        setServerError("An unexpected error occurred.");
+        return;
+      }
       const status = err.response?.status;
       const detail = err.response?.data?.detail;
 
@@ -112,8 +119,11 @@ const UpdateName = () => {
         return;
       }
 
-      setServerError(typeof detail === "string" ? detail
-        : `Request failed${status ? ` (${status})` : ""}. Please try again.`);
+      setServerError(
+        typeof detail === "string"
+          ? detail
+          : `Request failed (${status ?? "unknown"}).`
+      );
     }
   };
 
