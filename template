@@ -1,0 +1,269 @@
+api/template/receipts/customer_receipt_pdf.html
+
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Receipt {{ receipt.receipt_number }}</title>
+    <style>
+        @page { size: A4; margin: 20mm; }
+        body {
+            font-family: Helvetica, Arial, sans-serif;
+            font-size: 12pt;
+            color: #333;
+            line-height: 1.5
+        }
+        .firm-header {
+            border-bottom: 2px solid #111;
+            padding-bottom: 12px;
+            margin-bottom: 24px;
+        }
+        .firm-header h1 { margin: 0 0 4px; font-size: 18pt; }
+        .firm-header p { margin: 2px 0; font-size: 10pt; color: #666; }
+
+        h2 { font-size: 14pt; margin: 24px 0 4px; }
+        .meta { font-size: 10pt; color: #666; margin-bottom: 20px; }
+
+        .row { display: flex; justify-content: space-between; padding: 4px 0; }
+        .label { color: #666; }
+
+        hr { border: none; border-top: 1px solid #ddd; margin: 20px 0; }
+        .total {
+            display: flex;
+            justify-content: space-between;
+            font-size: 14pt;
+            font-weight: 700;
+            border-top: 2px solid #111;
+            padding-top: 12px;
+            margin-top: 16px;
+        }
+        .footer {
+            text-align: center;
+            font-size: 9pt;
+            color: #999;
+            margin-top: 40px;
+            padding-top: 16px;
+            border-top: 1px solid #eee;
+        }
+        .thanks { text-align: center; font-size: 12pt; margin-top: 32px; }
+    </style>
+</head>
+<body>
+
+  <div class="firm-header">
+    <h1>{{ firm.name }}</h1>
+    {% if firm.registration_number %}
+      <p>Reg No: {{ firm.registration_number }}</p>
+    {% endif %}
+    <p>{{ firm.address }}</p>
+    <p>{{ firm.phone_number }}</p>
+    {% if firm.deals_on %}
+      <p>Deals on: {{ firm.deals_on }}</p>
+    {% endif %}
+  </div>
+
+  <h2>Receipt #{{ receipt.receipt_number }}</h2>
+  <div class="meta">
+    {{ receipt.created_at.strftime('%B %d, %Y at %H:%M') }}
+  </div>
+
+  <div class="row"><span class="label">Customer</span><span>{{ receipt.customer_fullname }}</span></div>
+  {% if receipt.customer_phone %}
+  <div class="row"><span class="label">Phone</span><span>{{ receipt.customer_phone }}</span></div>
+  {% endif %}
+  {% if receipt.customer_address %}
+  <div class="row"><span class="label">Address</span><span>{{ receipt.customer_address }}</span></div>
+  {% endif %}
+
+  <hr>
+
+  <div class="row"><span class="label">Product</span><span>{{ receipt.product_name }}</span></div>
+  {% if receipt.serial_number %}
+  <div class="row"><span class="label">Serial</span><span>{{ receipt.serial_number }}</span></div>
+  {% endif %}
+  <div class="row"><span class="label">Quantity</span><span>{{ receipt.quantity }}</span></div>
+  <div class="row">
+    <span class="label">Unit price</span>
+    <span>{{ receipt.currency }} {{ "%.2f"|format(receipt.unit_price) }}</span>
+  </div>
+
+  <hr>
+
+  <div class="row"><span>Subtotal</span><span>{{ receipt.currency }} {{ "%.2f"|format(receipt.subtotal) }}</span></div>
+  <div class="row"><span>Discount</span><span>− {{ receipt.currency }} {{ "%.2f"|format(receipt.discount) }}</span></div>
+  <div class="row"><span>Net</span><span>{{ receipt.currency }} {{ "%.2f"|format(receipt.net_total) }}</span></div>
+  <div class="row"><span>Tax</span><span>{{ receipt.currency }} {{ "%.2f"|format(receipt.tax) }}</span></div>
+  <div class="row"><span>Shipping</span><span>{{ receipt.currency }} {{ "%.2f"|format(receipt.shipping) }}</span></div>
+
+  <div class="total">
+    <span>TOTAL</span>
+    <span>{{ receipt.currency }} {{ "%.2f"|format(receipt.grand_total) }}</span>
+  </div>
+
+  <p style="text-align:center; font-size:10pt; color:#666; margin-top:20px;">
+    Status: <strong>{{ receipt.status|upper }}</strong>
+  </p>
+
+  <p class="thanks">Thank you for your business!</p>
+
+  <div class="footer">
+    This receipt was generated on behalf of {{ firm.name }}
+    using <strong>{{ sitename }}</strong>.<br>
+    &copy; {{ current_year }} {{ sitename }}.
+  </div>
+
+</body>
+</html>
+
+
+
+
+
+api/templates/receipt/customer_receipt.html
+
+
+
+
+
+{% extends "layouts/base_email.html" %}
+
+{% block title %}Receipt {{ receipt.receipt_number }}{% endblock %}
+
+{% block content %}
+  {# ---------------- FIRM HEADER ---------------- #}
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+         style="border-bottom:2px solid #e5e7eb; padding-bottom:16px; margin-bottom:24px;">
+    <tr>
+      <td style="font-size:20px; font-weight:700; color:#111;">
+        {{ firm.name }}
+      </td>
+    </tr>
+    {% if firm.registration_number %}
+    <tr>
+      <td style="font-size:12px; color:#666;">
+        Reg No: {{ firm.registration_number }}
+      </td>
+    </tr>
+    {% endif %}
+    <tr>
+      <td style="font-size:12px; color:#666;">{{ firm.address }}</td>
+    </tr>
+    <tr>
+      <td style="font-size:12px; color:#666;">{{ firm.phone_number }}</td>
+    </tr>
+    {% if firm.deals_on %}
+    <tr>
+      <td style="font-size:12px; color:#666;">Deals on: {{ firm.deals_on }}</td>
+    </tr>
+    {% endif %}
+  </table>
+
+  {# ---------------- RECEIPT ---------------- #}
+  <h1 style="font-size:18px; margin:0 0 8px; color:#111;">
+    Receipt #{{ receipt.receipt_number }}
+  </h1>
+  <p style="font-size:13px; color:#666; margin:0 0 24px;">
+    {{ receipt.created_at.strftime('%B %d, %Y at %H:%M') }}
+  </p>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+         style="font-size:14px; color:#333;">
+    <tr>
+      <td style="padding:6px 0; color:#666;">Customer</td>
+      <td style="padding:6px 0; text-align:right;">{{ receipt.customer_fullname }}</td>
+    </tr>
+    {% if receipt.customer_phone %}
+    <tr>
+      <td style="padding:6px 0; color:#666;">Phone</td>
+      <td style="padding:6px 0; text-align:right;">{{ receipt.customer_phone }}</td>
+    </tr>
+    {% endif %}
+    {% if receipt.customer_address %}
+    <tr>
+      <td style="padding:6px 0; color:#666;">Address</td>
+      <td style="padding:6px 0; text-align:right;">{{ receipt.customer_address }}</td>
+    </tr>
+    {% endif %}
+  </table>
+
+  <hr style="border:none; border-top:1px solid #e5e7eb; margin:20px 0;">
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+         style="font-size:14px; color:#333;">
+    <tr>
+      <td style="padding:6px 0; color:#666;">Product</td>
+      <td style="padding:6px 0; text-align:right;">{{ receipt.product_name }}</td>
+    </tr>
+    {% if receipt.serial_number %}
+    <tr>
+      <td style="padding:6px 0; color:#666;">Serial</td>
+      <td style="padding:6px 0; text-align:right;">{{ receipt.serial_number }}</td>
+    </tr>
+    {% endif %}
+    <tr>
+      <td style="padding:6px 0; color:#666;">Quantity</td>
+      <td style="padding:6px 0; text-align:right;">{{ receipt.quantity }}</td>
+    </tr>
+    <tr>
+      <td style="padding:6px 0; color:#666;">Unit price</td>
+      <td style="padding:6px 0; text-align:right;">
+        {{ receipt.currency }} {{ "%.2f"|format(receipt.unit_price) }}
+      </td>
+    </tr>
+  </table>
+
+  <hr style="border:none; border-top:1px solid #e5e7eb; margin:20px 0;">
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+         style="font-size:14px; color:#333;">
+    <tr>
+      <td style="padding:4px 0;">Subtotal</td>
+      <td style="padding:4px 0; text-align:right;">
+        {{ receipt.currency }} {{ "%.2f"|format(receipt.subtotal) }}
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:4px 0;">Discount</td>
+      <td style="padding:4px 0; text-align:right;">
+        − {{ receipt.currency }} {{ "%.2f"|format(receipt.discount) }}
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:4px 0;">Net</td>
+      <td style="padding:4px 0; text-align:right;">
+        {{ receipt.currency }} {{ "%.2f"|format(receipt.net_total) }}
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:4px 0;">Tax</td>
+      <td style="padding:4px 0; text-align:right;">
+        {{ receipt.currency }} {{ "%.2f"|format(receipt.tax) }}
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:4px 0;">Shipping</td>
+      <td style="padding:4px 0; text-align:right;">
+        {{ receipt.currency }} {{ "%.2f"|format(receipt.shipping) }}
+      </td>
+    </tr>
+  </table>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+         style="margin-top:16px; border-top:2px solid #111;">
+    <tr>
+      <td style="padding-top:12px; font-size:16px; font-weight:700;">TOTAL</td>
+      <td style="padding-top:12px; font-size:16px; font-weight:700; text-align:right;">
+        {{ receipt.currency }} {{ "%.2f"|format(receipt.grand_total) }}
+      </td>
+    </tr>
+  </table>
+
+  <p style="font-size:12px; color:#666; margin-top:20px; text-align:center;">
+    Status: <strong>{{ receipt.status|upper }}</strong>
+  </p>
+
+  <p style="font-size:14px; color:#555; margin-top:28px; text-align:center;">
+    Thank you for your business!
+  </p>
+{% endblock %}
