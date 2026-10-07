@@ -1,185 +1,89 @@
-// deepest
-// src/context/AuthContext.tsx
-
-import {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  useCallback,
-} from "react";
-
-import type { ReactNode } from "react";
-
-import api from "@/api/client";
-import type { UserProfile, ReadUser } from "@/types";
 
 
-// ============================================================
-// AUTH CONTEXT TYPE
-// ============================================================
+// src/api/client.ts — FINAL, DOUBLE SUBMIT COOKIE VERSION
+import axios from "axios";
 
-interface AuthContextType {
-  /** Current authenticated user, or null if unauthenticated. */
-  user: ReadUser | null;
+const API_URL = import.meta.env.VITE_API_URL;
 
-  /** True while the initial auth check or refresh is in flight. */
-  isLoading: boolean;
+const api = axios.create({
+  baseURL: API_URL || "http://localhost:8000",
+  withCredentials: true,
+});
 
-  /** Fetch the authenticated user (call after login cookies are set). */
-  login: () => Promise<void>;
-
-  /** Clear session and redirect to home. */
-  logout: () => Promise<void>;
-
-  /** Optional banner message after logout. */
-  logoutMessage: string | null;
-
-  /**
-   * Re-fetch the current user from /auth/profile.
-   * Use after mutations that change user state (name, avatar, etc).
-   */
-  refreshUser: () => Promise<void>;
-
-  /**
-   * Optimistically replace the current user with a fresh server
-   * payload (e.g. from PATCH /me/names response).
-   *
-   * Prefer `refreshUser` when you don't already have a fresh
-   * ReadUser object from a server response.
-   */
-  setUser: (user: ReadUser) => void;
-}
-
-
-// ============================================================
-// CONTEXT
-// ============================================================
-
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-
-// ============================================================
-// PROVIDER
-// ============================================================
-
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUserState] = useState<ReadUser | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [logoutMessage, setLogoutMessage] = useState<string | null>(null);
-
-  // ==========================================================
-  // FETCH CURRENT USER
-  // ==========================================================
-
-  const fetchUser = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      // Backend returns the auth-safe shape; alias as ReadUser.
-      const response = await api.get<ReadUser>("/auth/profile");
-      setUserState(response.data);
-    } catch {
-      setUserState(null);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  // ==========================================================
-  // INITIAL AUTH CHECK
-  // ==========================================================
-
-  useEffect(() => {
-    fetchUser();
-  }, [fetchUser]);
-
-  // ==========================================================
-  // LOGIN
-  // ==========================================================
-
-  const login = useCallback(async (): Promise<void> => {
-    await fetchUser();
-  }, [fetchUser]);
-
-  // ==========================================================
-  // LOGOUT
-  // ==========================================================
-
-  const logout = useCallback(async (): Promise<void> => {
-    try {
-      const response = await api.post<{ message: string }>("/auth/logout");
-
-      setUserState(null);
-      setLogoutMessage(response.data.message);
-
-      window.setTimeout(() => {
-        setLogoutMessage(null);
-        window.location.href = "/";
-      }, 1500);
-    } catch {
-      console.warn("Logout failed");
-
-      setUserState(null);
-      window.location.href = "/";
-    }
-  }, []);
-
-  // ==========================================================
-  // REFRESH USER — re-fetches from backend
-  // ==========================================================
-
-  const refreshUser = useCallback(async (): Promise<void> => {
-    await fetchUser();
-  }, [fetchUser]);
-
-  // ==========================================================
-  // SET USER — optimistic replace
-  // ==========================================================
-
-  const setUser = useCallback((next: ReadUser): void => {
-    setUserState(next);
-  }, []);
-
-  // ==========================================================
-  // PROVIDER
-  // ==========================================================
-
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        isLoading,
-        login,
-        logout,
-        logoutMessage,
-        refreshUser,
-        setUser,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+if (import.meta.env.DEV && !API_URL) {
+  console.warn(
+    "VITE_API_URL not configured! Using fallback: http://127.0.0.1:8000"
   );
 }
 
+// =============== TOKEN REFRESH QUEUE ===============
+let isRefreshing = false;
+let failedQueue: Array<{
+  resolve: (value?: any) => void;
+  reject: (reason?: any) => void;
+}> = [];
 
-// ============================================================
-// USE AUTH
-// ============================================================
+api.interceptors.request.use((config) => {
+  // Read CSRF token from cookie (Double Submit Cookie Pattern)
+  const csrfToken = document.cookie
+    .split("; ")
+    .find((row) => row.startsWith("csrf_token="))
+    ?.split("=")[1];
 
-export function useAuth(): AuthContextType {
-  const context = useContext(AuthContext);
-
-  if (!context) {
-    throw new Error("useAuth must be used within AuthProvider");
+  if (csrfToken) {
+    config.headers["X-CSRF-Token"] = csrfToken;
   }
+  return config;
+});
 
-  return context;
-}
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+
+    if (
+      error.response?.status === 401 &&
+      !originalRequest._retry &&
+      !originalRequest.url?.includes("/refresh")
+    ) {
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        }).then(() => api(originalRequest))
+          .catch((err) => Promise.reject(err));
+      }
+
+      originalRequest._retry = true;
+      isRefreshing = true;
+
+      try {
+        await fetch("/auth/refresh", {
+          method: "POST",
+          credentials: "include",
+        });
+
+        failedQueue.forEach((p) => p.resolve());
+        failedQueue = [];
+        return api(originalRequest);
+      } catch (refreshError) {
+        failedQueue.forEach((p) => p.reject(refreshError));
+        failedQueue = [];
+        window.location.href = "/login";
+        return Promise.reject(refreshError);
+      } finally {
+        isRefreshing = false;
+      }
+    }
+
+    return Promise.reject(error);
+  }
+);
+
+export default api;
 
 
 
-
-// src/api/client.ts
+// src/api/client.ts deepseek
 
 import axios, {
   type AxiosError,
