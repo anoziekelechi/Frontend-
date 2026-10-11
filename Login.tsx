@@ -1,4 +1,44 @@
 
+you recommended this at login.tsx
+
+const location = useLocation();
+const navigate = useNavigate();
+
+const from = (location.state as { from?: { pathname: string } } | null)
+  ?.from?.pathname ?? "/profile";
+
+// Inside the success branch after `body.status === "otp_required"`:
+redirectRef.current = {
+  path: "/login/verify",
+  state: {
+    email: body.email,
+    login_token: body.login_token,
+    otp_attempts_used: body.otp_attempts_used,
+    otp_expires_in_seconds: body.otp_expires_in_seconds,
+    from,                              // ← pass it through
+  },
+  delayMs: 1200,
+};
+
+
+
+at LoginVerif.tsx 
+
+const { email, login_token, otp_attempts_used, otp_expires_in_seconds, from } =
+  (location.state || {}) as {
+    email?: string;
+    login_token?: string;
+    otp_attempts_used?: number;
+    otp_expires_in_seconds?: number;
+    from?: string;
+  };
+
+// On success:
+redirectRef.current = {
+  path: from ?? "/profile",
+  delayMs: 1000,
+};
+can you rewrite the login and verifylogin to implement this 
 // src/pages/Login.tsx
 
 import { useEffect, useRef, useState } from "react";
