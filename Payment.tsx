@@ -1,27 +1,4 @@
 
-// src/types/payment/read.ts
-
-export interface PaymentMethodRead {
-  id: number;
-  country_id: number;
-  name: string;
-  slug?: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-/** Payment methods for a single country. */
-export interface CountryPaymentMethodsRead {
-  country_id: number;
-  country_name: string;
-  payment_methods: PaymentMethodRead[];
-}
-
-/** All payment methods, grouped by country. */
-export interface AllPaymentMethodsRead {
-  total_countries: number;
-  data: CountryPaymentMethodsRead[];
-}
 
 
 
@@ -77,6 +54,42 @@ export * from "./site";
 
 
 
+
+
+// src/types/payment/read.ts
+
+export interface PaymentMethodRead {
+  id: number;
+  country_id: number;
+  name: string;
+  slug?: string | null;
+  payment_logo_url?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CountryPaymentMethodsRead {
+  country_id: number;
+  country_name: string;
+  payment_methods: PaymentMethodRead[];
+}
+
+export interface AllPaymentMethodsRead {
+  total_countries: number;
+  data: CountryPaymentMethodsRead[];
+}
+
+export interface AvailablePaymentMethodRead {
+  id: number;
+  name: string;
+  slug?: string | null;
+  payment_logo_url?: string | null;
+}
+
+export interface AvailablePaymentMethodsRead {
+  total: number;
+  methods: AvailablePaymentMethodRead[];
+}
 
 
 
