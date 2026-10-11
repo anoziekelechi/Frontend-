@@ -1,44 +1,3 @@
-
-you recommended this at login.tsx
-
-const location = useLocation();
-const navigate = useNavigate();
-
-const from = (location.state as { from?: { pathname: string } } | null)
-  ?.from?.pathname ?? "/profile";
-
-// Inside the success branch after `body.status === "otp_required"`:
-redirectRef.current = {
-  path: "/login/verify",
-  state: {
-    email: body.email,
-    login_token: body.login_token,
-    otp_attempts_used: body.otp_attempts_used,
-    otp_expires_in_seconds: body.otp_expires_in_seconds,
-    from,                              // ← pass it through
-  },
-  delayMs: 1200,
-};
-
-
-
-at LoginVerif.tsx 
-
-const { email, login_token, otp_attempts_used, otp_expires_in_seconds, from } =
-  (location.state || {}) as {
-    email?: string;
-    login_token?: string;
-    otp_attempts_used?: number;
-    otp_expires_in_seconds?: number;
-    from?: string;
-  };
-
-// On success:
-redirectRef.current = {
-  path: from ?? "/profile",
-  delayMs: 1000,
-};
-can you rewrite the login and verifylogin to implement this 
 // src/pages/Login.tsx
 
 import { useEffect, useRef, useState } from "react";
@@ -63,24 +22,66 @@ import type {
   ResendVerificationResponse,
 } from "@/types";
 
+
+// =============================================================
+// VALIDATION
+// =============================================================
+
 const schema = z.object({
   email: z.string().trim().email("Please enter a valid email address"),
   password: z.string().min(1, "Password is required"),
 });
 type FormData = z.infer<typeof schema>;
 
+
+// =============================================================
+// TYPES
+// =============================================================
+
+/**
+ * Shape of the router state this page may receive.
+ *
+ *   from            — set by route guards when a user tried to
+ *                     reach a protected page unauthenticated
+ *   passwordChanged — set by ConfirmPasswordChange on success
+ *   emailChanged    — set by VerifyEmailChange on success
+ *   email           — prefill hint (e.g. the user's new email)
+ */
+interface LoginLocationState {
+  from?: { pathname?: string };
+  passwordChanged?: boolean;
+  emailChanged?: boolean;
+  email?: string;
+}
+
+
+// =============================================================
+// COMPONENT
+// =============================================================
+
 const Login = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, isLoading: authLoading } = useAuth();
 
-  const { passwordChanged, emailChanged, email: suggestedEmail } =
-    (location.state || {}) as {
-      passwordChanged?: boolean;
-      emailChanged?: boolean;
-      email?: string;
-    };
+  // ------------------------------------------------------------------
+  // Router state (from guard, or post-mutation success)
+  // ------------------------------------------------------------------
+  const {
+    from,
+    passwordChanged,
+    emailChanged,
+    email: suggestedEmail,
+  } = (location.state || {}) as LoginLocationState;
 
+  // Path the user was trying to reach before being bounced here.
+  // Fall back to /profile when no `from` is present.
+  const redirectTarget = from?.pathname ?? "/profile";
+
+
+  // ------------------------------------------------------------------
+  // Local state
+  // ------------------------------------------------------------------
   const [serverError, setServerError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [retryAfter, setRetryAfter] = useState<number | null>(null);
@@ -91,8 +92,13 @@ const Login = () => {
     delayMs: number;
   } | null>(null);
 
+
+  // ------------------------------------------------------------------
+  // Form
+  // ------------------------------------------------------------------
   const {
-    register, handleSubmit,
+    register,
+    handleSubmit,
     formState: { errors, isSubmitting },
     setError,
   } = useForm<FormData>({
@@ -100,6 +106,10 @@ const Login = () => {
     defaultValues: { email: suggestedEmail ?? "", password: "" },
   });
 
+
+  // ------------------------------------------------------------------
+  // Cancelable redirect
+  // ------------------------------------------------------------------
   useEffect(() => {
     const p = redirectRef.current;
     if (!p) return;
@@ -109,6 +119,10 @@ const Login = () => {
     return () => window.clearTimeout(id);
   }, [successMessage, serverError, navigate]);
 
+
+  // ------------------------------------------------------------------
+  // Retry-After countdown
+  // ------------------------------------------------------------------
   useEffect(() => {
     if (retryAfter === null || retryAfter <= 0) return;
     const id = window.setInterval(() => {
@@ -117,6 +131,10 @@ const Login = () => {
     return () => window.clearInterval(id);
   }, [retryAfter]);
 
+
+  // ------------------------------------------------------------------
+  // Auth loading
+  // ------------------------------------------------------------------
   if (authLoading) {
     return (
       <Container className="py-5 text-center">
@@ -125,8 +143,14 @@ const Login = () => {
       </Container>
     );
   }
-  if (user) return <Navigate to="/profile" replace />;
 
+  // Already authenticated → send to wherever they were headed
+  if (user) return <Navigate to={redirectTarget} replace />;
+
+
+  // ------------------------------------------------------------------
+  // Submit
+  // ------------------------------------------------------------------
   const onSubmit = async (data: FormData) => {
     setServerError(null);
     setSuccessMessage(null);
@@ -143,6 +167,9 @@ const Login = () => {
 
       const body = response.data;
 
+      // ---------------------------------------------------
+      // DISABLED
+      // ---------------------------------------------------
       if (body.status === "disabled") {
         setServerError(body.message);
         redirectRef.current = {
@@ -153,14 +180,20 @@ const Login = () => {
         return;
       }
 
+      // ---------------------------------------------------
+      // UNVERIFIED — auto-resend verification, route to verify
+      // ---------------------------------------------------
       if (body.status === "unverified") {
         const verifiedEmail = body.email ?? submittedEmail;
         setServerError(body.message);
 
         try {
-          const resendPayload: ResendVerificationRequest = { email: verifiedEmail };
+          const resendPayload: ResendVerificationRequest = {
+            email: verifiedEmail,
+          };
           const resendRes = await api.post<ResendVerificationResponse>(
-            "/auth/resend/verification", resendPayload
+            "/auth/resend/verification",
+            resendPayload
           );
 
           redirectRef.current = {
@@ -169,7 +202,11 @@ const Login = () => {
               email: resendRes.data.email,
               reg_token: resendRes.data.reg_token,
               otp_attempts_used: resendRes.data.otp_attempts_used,
-              otp_expires_in_seconds: resendRes.data.otp_expires_in_seconds,
+              otp_expires_in_seconds:
+                resendRes.data.otp_expires_in_seconds,
+              // Pass `from` through so the eventual post-verification
+              // login lands where the user was originally headed.
+              from: redirectTarget,
             },
             delayMs: 2000,
           };
@@ -184,6 +221,9 @@ const Login = () => {
         }
       }
 
+      // ---------------------------------------------------
+      // OTP REQUIRED — normal path
+      // ---------------------------------------------------
       if (body.status === "otp_required") {
         setSuccessMessage(body.message);
         redirectRef.current = {
@@ -193,6 +233,9 @@ const Login = () => {
             login_token: body.login_token,
             otp_attempts_used: body.otp_attempts_used,
             otp_expires_in_seconds: body.otp_expires_in_seconds,
+            // Pass `from` through to the verify step so the post-
+            // verification redirect honours the original intent.
+            from: redirectTarget,
           },
           delayMs: 1200,
         };
@@ -201,6 +244,7 @@ const Login = () => {
 
       // Malformed 200 — no detail to trust
       setServerError("Unexpected response from server.");
+
     } catch (err) {
       if (!axios.isAxiosError(err)) {
         setServerError("An unexpected error occurred.");
@@ -209,6 +253,7 @@ const Login = () => {
       const status = err.response?.status;
       const detail = err.response?.data?.detail;
 
+      // 422 — Pydantic validation
       if (status === 422 && Array.isArray(detail)) {
         detail.forEach((item: unknown) => {
           if (typeof item !== "object" || item === null) return;
@@ -221,6 +266,7 @@ const Login = () => {
         return;
       }
 
+      // 429 — rate limit
       if (status === 429) {
         const header = err.response?.headers?.["retry-after"];
         const parsed = header ? parseInt(String(header), 10) : NaN;
@@ -232,11 +278,12 @@ const Login = () => {
         return;
       }
 
+      // 403 — already logged in
       if (status === 403) {
         setServerError(
           typeof detail === "string" ? detail : `Request failed (${status}).`
         );
-        redirectRef.current = { path: "/profile", delayMs: 2000 };
+        redirectRef.current = { path: redirectTarget, delayMs: 2000 };
         return;
       }
 
@@ -248,11 +295,16 @@ const Login = () => {
     }
   };
 
+
   const submitDisabled =
     isSubmitting ||
     successMessage !== null ||
     (retryAfter !== null && retryAfter > 0);
 
+
+  // ------------------------------------------------------------------
+  // UI
+  // ------------------------------------------------------------------
   return (
     <Container className="py-5" style={{ maxWidth: 480 }}>
       <div className="bg-white p-4 rounded shadow-sm">
@@ -260,9 +312,11 @@ const Login = () => {
 
         {passwordChanged && (
           <Alert variant="success" className="text-center">
-            Password changed successfully. Please log in with your new password.
+            Password changed successfully. Please log in with your new
+            password.
           </Alert>
         )}
+
         {emailChanged && (
           <Alert variant="success" className="text-center">
             Email address updated. Please log in again.
@@ -279,13 +333,17 @@ const Login = () => {
         {serverError && (
           <Alert variant="danger" className="text-center">
             {serverError}
+
             {retryAfter !== null && retryAfter > 0 && (
               <div className="small mt-1">
                 You can try again in {humanizeSeconds(retryAfter)}.
               </div>
             )}
+
             {redirectRef.current?.path === "/register/verify" && (
-              <div className="small mt-1">Sending a fresh verification code...</div>
+              <div className="small mt-1">
+                Sending a fresh verification code...
+              </div>
             )}
           </Alert>
         )}
@@ -293,29 +351,57 @@ const Login = () => {
         <Form onSubmit={handleSubmit(onSubmit)} noValidate>
           <Form.Group className="mb-3" controlId="email">
             <Form.Label>Email</Form.Label>
-            <Form.Control type="email" autoComplete="email" placeholder="Enter your email"
-              isInvalid={!!errors.email} disabled={isSubmitting || successMessage !== null}
-              {...register("email")} />
-            <Form.Control.Feedback type="invalid">{errors.email?.message}</Form.Control.Feedback>
+            <Form.Control
+              type="email"
+              autoComplete="email"
+              placeholder="Enter your email"
+              isInvalid={!!errors.email}
+              disabled={isSubmitting || successMessage !== null}
+              {...register("email")}
+            />
+            <Form.Control.Feedback type="invalid">
+              {errors.email?.message}
+            </Form.Control.Feedback>
           </Form.Group>
 
           <Form.Group className="mb-4" controlId="password">
             <Form.Label>Password</Form.Label>
-            <Form.Control type="password" autoComplete="current-password" placeholder="Enter your password"
-              isInvalid={!!errors.password} disabled={isSubmitting || successMessage !== null}
-              {...register("password")} />
-            <Form.Control.Feedback type="invalid">{errors.password?.message}</Form.Control.Feedback>
+            <Form.Control
+              type="password"
+              autoComplete="current-password"
+              placeholder="Enter your password"
+              isInvalid={!!errors.password}
+              disabled={isSubmitting || successMessage !== null}
+              {...register("password")}
+            />
+            <Form.Control.Feedback type="invalid">
+              {errors.password?.message}
+            </Form.Control.Feedback>
           </Form.Group>
 
-          <Button type="submit" variant="primary" className="w-100" disabled={submitDisabled}>
+          <Button
+            type="submit"
+            variant="primary"
+            className="w-100"
+            disabled={submitDisabled}
+          >
             {isSubmitting ? (
               <>
-                <Spinner as="span" animation="border" size="sm" role="status" aria-hidden="true" className="me-2" />
+                <Spinner
+                  as="span"
+                  animation="border"
+                  size="sm"
+                  role="status"
+                  aria-hidden="true"
+                  className="me-2"
+                />
                 Checking...
               </>
             ) : retryAfter !== null && retryAfter > 0 ? (
               `Try again in ${humanizeSeconds(retryAfter)}`
-            ) : "Continue"}
+            ) : (
+              "Continue"
+            )}
           </Button>
         </Form>
 
@@ -333,7 +419,7 @@ export default Login;
 
 
 
-
+// src/pages/VerifyLogin.tsx
 
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, Navigate } from "react-router-dom";
@@ -354,41 +440,85 @@ import OtpResendPanel from "@/components/auth/OtpResendPanel";
 import { useOtpSession } from "@/hooks/useOtpSession";
 import type { VerifyLoginResponse, VerifyOtpRequest } from "@/types";
 
+
+// =============================================================
+// VALIDATION
+// =============================================================
+
 const schema = z.object({
-  otp_code: z.string().length(6, "OTP must be exactly 6 digits").regex(/^\d{6}$/, "Numbers only"),
+  otp_code: z
+    .string()
+    .length(6, "OTP must be exactly 6 digits")
+    .regex(/^\d{6}$/, "Numbers only"),
 });
 type FormData = z.infer<typeof schema>;
+
+
+// =============================================================
+// COMPONENT
+// =============================================================
 
 const VerifyLogin = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, login, isLoading: authLoading } = useAuth();
 
-  const { email, login_token, otp_attempts_used, otp_expires_in_seconds } =
-    (location.state || {}) as {
-      email?: string;
-      login_token?: string;
-      otp_attempts_used?: number;
-      otp_expires_in_seconds?: number;
-    };
+  // ------------------------------------------------------------------
+  // Router state from Login.tsx
+  //
+  // `from` carries the original destination the user was heading to
+  // before the guard bounced them to /login.
+  // ------------------------------------------------------------------
+  const {
+    email,
+    login_token,
+    otp_attempts_used,
+    otp_expires_in_seconds,
+    from,
+  } = (location.state || {}) as {
+    email?: string;
+    login_token?: string;
+    otp_attempts_used?: number;
+    otp_expires_in_seconds?: number;
+    from?: string;
+  };
 
+  // Where to land after successful verification.
+  // Falls back to /profile when no `from` was passed.
+  const postLoginTarget = from ?? "/profile";
+
+
+  // ------------------------------------------------------------------
+  // Local state
+  // ------------------------------------------------------------------
   const [serverError, setServerError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
   const redirectRef = useRef<{
     path: string;
     state?: Record<string, unknown>;
     delayMs: number;
   } | null>(null);
 
+
+  // ------------------------------------------------------------------
+  // Form
+  // ------------------------------------------------------------------
   const {
-    register, handleSubmit,
+    register,
+    handleSubmit,
     formState: { errors, isSubmitting },
-    setError, reset,
+    setError,
+    reset,
   } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: { otp_code: "" },
   });
 
+
+  // ------------------------------------------------------------------
+  // OTP session (countdown + resend)
+  // ------------------------------------------------------------------
   const session = useOtpSession({
     email: email ?? "",
     accountToken: login_token ?? "",
@@ -397,6 +527,10 @@ const VerifyLogin = () => {
     initialSecondsLeft: otp_expires_in_seconds,
   });
 
+
+  // ------------------------------------------------------------------
+  // Cancelable redirect
+  // ------------------------------------------------------------------
   useEffect(() => {
     const p = redirectRef.current;
     if (!p) return;
@@ -406,6 +540,10 @@ const VerifyLogin = () => {
     return () => window.clearTimeout(id);
   }, [successMessage, serverError, navigate]);
 
+
+  // ------------------------------------------------------------------
+  // Guards
+  // ------------------------------------------------------------------
   if (authLoading) {
     return (
       <Container className="py-5 text-center">
@@ -413,22 +551,34 @@ const VerifyLogin = () => {
       </Container>
     );
   }
-  if (user) return <Navigate to="/profile" replace />;
+  if (user) return <Navigate to={postLoginTarget} replace />;
   if (!email || !login_token) return <Navigate to="/login" replace />;
 
+
+  // ------------------------------------------------------------------
+  // Submit
+  // ------------------------------------------------------------------
   const onSubmit = async (data: FormData) => {
     setServerError(null);
     setSuccessMessage(null);
     redirectRef.current = null;
 
     const payload: VerifyOtpRequest = {
-      email, account_token: login_token, otp_code: data.otp_code,
+      email,
+      account_token: login_token,
+      otp_code: data.otp_code,
     };
 
     try {
-      const res = await api.post<VerifyLoginResponse>("/auth/login/verify", payload);
+      const res = await api.post<VerifyLoginResponse>(
+        "/auth/login/verify",
+        payload
+      );
       const body = res.data;
 
+      // ---------------------------------------------------
+      // DISABLED — account state changed mid-flow
+      // ---------------------------------------------------
       if (body.status === "disabled") {
         setServerError(body.message);
         redirectRef.current = {
@@ -439,21 +589,52 @@ const VerifyLogin = () => {
         return;
       }
 
+      // ---------------------------------------------------
+      // UNVERIFIED — auto-resend, route to register verification
+      // ---------------------------------------------------
       if (body.status === "unverified") {
         setServerError(body.message);
-        try { await api.post("/auth/resend/verification", { email }); } catch { /* ignore */ }
-        redirectRef.current = { path: "/register", delayMs: 2000 };
+
+        try {
+          await api.post("/auth/resend/verification", { email });
+        } catch {
+          // ignore — the message is still shown to the user
+        }
+
+        redirectRef.current = {
+          path: "/register/verify",
+          state: {
+            email,
+            // Preserve the original intent through the verification
+            // step. When that flow completes, it returns to /login,
+            // and eventually the user should land at `from`.
+            from: postLoginTarget,
+          },
+          delayMs: 2000,
+        };
         return;
       }
 
+      // ---------------------------------------------------
+      // SUCCESS — refresh auth context, then redirect
+      // ---------------------------------------------------
       if (body.status === "success") {
         setSuccessMessage(body.message);
+
+        // Backend has already set the auth cookies. `login()`
+        // re-fetches the authenticated user into context.
         await login();
-        redirectRef.current = { path: "/profile", delayMs: 1000 };
+
+        redirectRef.current = {
+          path: postLoginTarget,
+          delayMs: 1000,
+        };
         return;
       }
 
+      // Unexpected status
       setServerError("Unexpected response from server.");
+
     } catch (err) {
       if (!axios.isAxiosError(err)) {
         setServerError("An unexpected error occurred.");
@@ -462,6 +643,9 @@ const VerifyLogin = () => {
       const status = err.response?.status;
       const detail = err.response?.data?.detail;
 
+      // ---------------------------------------------------
+      // 422 — Pydantic validation
+      // ---------------------------------------------------
       if (status === 422 && Array.isArray(detail)) {
         detail.forEach((item: unknown) => {
           if (typeof item !== "object" || item === null) return;
@@ -474,6 +658,7 @@ const VerifyLogin = () => {
         return;
       }
 
+      // 400 — session expired
       if (status === 400) {
         setServerError(
           typeof detail === "string" ? detail : `Request failed (${status}).`
@@ -482,6 +667,7 @@ const VerifyLogin = () => {
         return;
       }
 
+      // 401 — OTP invalid; stay on page
       if (status === 401) {
         setServerError(
           typeof detail === "string" ? detail : `Request failed (${status}).`
@@ -490,18 +676,21 @@ const VerifyLogin = () => {
         return;
       }
 
+      // 403 — already logged in
       if (status === 403) {
         setServerError(
           typeof detail === "string" ? detail : `Request failed (${status}).`
         );
-        redirectRef.current = { path: "/profile", delayMs: 2000 };
+        redirectRef.current = { path: postLoginTarget, delayMs: 2000 };
         return;
       }
 
+      // 429 — rate limited
       if (status === 429) {
         const header = err.response?.headers?.["retry-after"];
         const parsed = header ? parseInt(String(header), 10) : NaN;
         const seconds = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+
         setServerError(
           typeof detail === "string"
             ? detail
@@ -520,20 +709,29 @@ const VerifyLogin = () => {
     }
   };
 
+
+  // ------------------------------------------------------------------
+  // UI
+  // ------------------------------------------------------------------
   return (
     <Container className="py-5" style={{ maxWidth: 480 }}>
       <div className="bg-white p-4 rounded shadow-sm text-center">
         <h1 className="h3 mb-2">Verify Login</h1>
         <p className="text-muted mb-3">
-          We sent a 6-digit code to<br /><strong>{email}</strong>
+          We sent a 6-digit code to
+          <br />
+          <strong>{email}</strong>
         </p>
 
-        <OtpCountdown secondsLeft={session.secondsLeft} isExpired={session.isExpired} />
+        <OtpCountdown
+          secondsLeft={session.secondsLeft}
+          isExpired={session.isExpired}
+        />
 
         {successMessage && (
           <Alert variant="success">
             {successMessage}
-            <div className="small mt-1">Redirecting to your profile...</div>
+            <div className="small mt-1">Redirecting...</div>
           </Alert>
         )}
         {serverError && <Alert variant="danger">{serverError}</Alert>}
@@ -541,16 +739,38 @@ const VerifyLogin = () => {
         <Form onSubmit={handleSubmit(onSubmit)} noValidate>
           <Form.Group className="mb-4" controlId="otp_code">
             <Form.Label>Verification Code</Form.Label>
-            <Form.Control type="text" inputMode="numeric" autoComplete="one-time-code"
-              autoFocus maxLength={6} placeholder="000000" className="text-center fs-3"
+            <Form.Control
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              autoFocus
+              maxLength={6}
+              placeholder="000000"
+              className="text-center fs-3"
               isInvalid={!!errors.otp_code}
-              disabled={session.isExpired || session.isExhausted || successMessage !== null}
-              {...register("otp_code")} />
-            <Form.Control.Feedback type="invalid">{errors.otp_code?.message}</Form.Control.Feedback>
+              disabled={
+                session.isExpired ||
+                session.isExhausted ||
+                successMessage !== null
+              }
+              {...register("otp_code")}
+            />
+            <Form.Control.Feedback type="invalid">
+              {errors.otp_code?.message}
+            </Form.Control.Feedback>
           </Form.Group>
 
-          <Button type="submit" variant="primary" className="w-100"
-            disabled={isSubmitting || session.isExpired || session.isExhausted || successMessage !== null}>
+          <Button
+            type="submit"
+            variant="primary"
+            className="w-100"
+            disabled={
+              isSubmitting ||
+              session.isExpired ||
+              session.isExhausted ||
+              successMessage !== null
+            }
+          >
             {isSubmitting ? "Verifying..." : "Verify & Login"}
           </Button>
         </Form>
@@ -564,7 +784,7 @@ const VerifyLogin = () => {
             resendMessage={session.resendMessage}
             resendError={session.resendError}
             retryAfterSeconds={session.retryAfterSeconds}
-            resendCooldown={session.resendCooldown} //
+            resendCooldown={session.resendCooldown}
             isExpired={session.isExpired}
             onResend={session.resend}
             disabled={successMessage !== null}
