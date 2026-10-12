@@ -1,4 +1,429 @@
 
+// src/components/payment-methods/DeletePaymentMethodModal.tsx
+
+import Modal from "react-bootstrap/Modal";
+import Button from "react-bootstrap/Button";
+import Spinner from "react-bootstrap/Spinner";
+import Alert from "react-bootstrap/Alert";
+
+import type { PaymentMethodRead } from "@/types";
+
+interface DeletePaymentMethodModalProps {
+  method: PaymentMethodRead | null;
+  deleting: boolean;
+  serverError?: string | null;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+const DeletePaymentMethodModal = ({
+  method,
+  deleting,
+  serverError,
+  onConfirm,
+  onCancel,
+}: DeletePaymentMethodModalProps) => {
+  const isOpen = method !== null;
+
+  return (
+    <Modal
+      show={isOpen}
+      onHide={deleting ? undefined : onCancel}
+      backdrop={deleting ? "static" : true}
+      keyboard={!deleting}
+      centered
+      aria-labelledby="delete-payment-method-title"
+    >
+      <Modal.Header closeButton={!deleting}>
+        <Modal.Title id="delete-payment-method-title">
+          Delete Payment Method
+        </Modal.Title>
+      </Modal.Header>
+
+      <Modal.Body>
+        {serverError && (
+          <Alert variant="danger" className="py-2 small">
+            {serverError}
+          </Alert>
+        )}
+
+        <p className="mb-3">
+          You are about to delete{" "}
+          <strong>{method?.name ?? "this payment method"}</strong>.
+        </p>
+
+        <Alert variant="warning" className="mb-3">
+          Any receipts referencing this payment method will lose
+          their reference. This action cannot be undone.
+        </Alert>
+
+        <p className="mb-0 text-muted small">
+          Do you still want to continue?
+        </p>
+      </Modal.Body>
+
+      <Modal.Footer>
+        <Button
+          variant="outline-secondary"
+          onClick={onCancel}
+          disabled={deleting}
+        >
+          No, take me back
+        </Button>
+        <Button
+          variant="danger"
+          onClick={onConfirm}
+          disabled={deleting}
+        >
+          {deleting ? (
+            <>
+              <Spinner
+                as="span"
+                animation="border"
+                size="sm"
+                role="status"
+                aria-hidden="true"
+                className="me-2"
+              />
+              Deleting...
+            </>
+          ) : (
+            "Yes, delete it"
+          )}
+        </Button>
+      </Modal.Footer>
+    </Modal>
+  );
+};
+
+export default DeletePaymentMethodModal;
+
+
+
+// src/pages/payment-methods/PaymentMethodDetail.tsx
+
+import { useEffect, useState } from "react";
+import { useParams, useNavigate, Link } from "react-router-dom";
+import axios from "axios";
+
+import Container from "react-bootstrap/Container";
+import ListGroup from "react-bootstrap/ListGroup";
+import Button from "react-bootstrap/Button";
+import Spinner from "react-bootstrap/Spinner";
+import Alert from "react-bootstrap/Alert";
+
+import api from "@/api/client";
+import { handleApiError } from "@/lib/handleApiError";
+import DeletePaymentMethodModal from "@/components/payment-methods/DeletePaymentMethodModal";
+import type {
+  DeletePaymentMethodResponse,
+  PaymentMethodRead,
+} from "@/types";
+
+
+const PaymentMethodDetail = () => {
+  const { slug } = useParams<{ slug: string }>();
+  const navigate = useNavigate();
+
+  const [method, setMethod] = useState<PaymentMethodRead | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!slug) return;
+
+    const controller = new AbortController();
+    let mounted = true;
+
+    api
+      .get<PaymentMethodRead>(`/payment-methods/${slug}`, {
+        signal: controller.signal,
+      })
+      .then((res) => {
+        if (mounted) setMethod(res.data);
+      })
+      .catch((err) => {
+        if (axios.isCancel(err)) return;
+        if (!mounted) return;
+        const msg = handleApiError(err, { navigate });
+        if (msg) setError(msg);
+      })
+      .finally(() => {
+        if (mounted && !controller.signal.aborted) setLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+      controller.abort();
+    };
+  }, [slug, navigate]);
+
+
+  const openDeleteModal = () => {
+    setDeleteError(null);
+    setShowDeleteModal(true);
+  };
+
+  const closeDeleteModal = () => {
+    if (deleting) return;
+    setShowDeleteModal(false);
+    setDeleteError(null);
+  };
+
+  const confirmDelete = async () => {
+    if (!method) return;
+
+    setDeleting(true);
+    setDeleteError(null);
+
+    try {
+      const res = await api.delete<DeletePaymentMethodResponse>(
+        `/payment-methods/${slug}`
+      );
+      setShowDeleteModal(false);
+      setMessage(res.data.message);
+      window.setTimeout(() => navigate("/payment-methods"), 1800);
+    } catch (err) {
+      const msg = handleApiError(err, {
+        navigate,
+        redirectOnAuth: false,
+        redirectOnForbidden: false,
+      });
+      if (msg) setDeleteError(msg);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+
+  if (loading) {
+    return (
+      <Container className="py-5 text-center">
+        <Spinner animation="border" />
+      </Container>
+    );
+  }
+
+  if (error && !method) {
+    return (
+      <Container className="py-5" style={{ maxWidth: 720 }}>
+        <Alert variant="danger">{error}</Alert>
+        <Link to="/payment-methods">← Back to Payment Methods</Link>
+      </Container>
+    );
+  }
+
+  if (!method) return null;
+
+
+  return (
+    <Container className="py-4" style={{ maxWidth: 720 }}>
+      {message && (
+        <Alert variant="success" className="mb-4">
+          {message}
+        </Alert>
+      )}
+      {error && (
+        <Alert variant="danger" className="mb-4">
+          {error}
+        </Alert>
+      )}
+
+      <div className="d-flex justify-content-between align-items-start mb-4">
+        <h1 className="h3 mb-0">{method.name}</h1>
+        <div className="d-flex gap-2">
+          <Button
+            as={Link as any}
+            to={`/payment-methods/${method.slug}/edit`}
+            variant="warning"
+          >
+            Update
+          </Button>
+          <Button variant="danger" onClick={openDeleteModal}>
+            Delete
+          </Button>
+        </div>
+      </div>
+
+      <ListGroup>
+        <ListGroup.Item className="d-flex justify-content-between">
+          <strong>Country ID</strong>
+          <span>{method.country_id}</span>
+        </ListGroup.Item>
+        <ListGroup.Item className="d-flex justify-content-between">
+          <strong>Slug</strong>
+          <span>{method.slug ?? "—"}</span>
+        </ListGroup.Item>
+        <ListGroup.Item className="d-flex justify-content-between">
+          <strong>Created</strong>
+          <span>{new Date(method.created_at).toLocaleString()}</span>
+        </ListGroup.Item>
+        <ListGroup.Item className="d-flex justify-content-between">
+          <strong>Updated</strong>
+          <span>{new Date(method.updated_at).toLocaleString()}</span>
+        </ListGroup.Item>
+      </ListGroup>
+
+      <Link to="/payment-methods" className="d-inline-block mt-4">
+        ← Back to Payment Methods
+      </Link>
+
+      <DeletePaymentMethodModal
+        method={showDeleteModal ? method : null}
+        deleting={deleting}
+        serverError={deleteError}
+        onConfirm={confirmDelete}
+        onCancel={closeDeleteModal}
+      />
+    </Container>
+  );
+};
+
+export default PaymentMethodDetail;
+
+
+
+
+// src/pages/payment-methods/PaymentMethodsList.tsx
+
+import { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import axios from "axios";
+
+import Container from "react-bootstrap/Container";
+import Accordion from "react-bootstrap/Accordion";
+import ListGroup from "react-bootstrap/ListGroup";
+import Spinner from "react-bootstrap/Spinner";
+import Alert from "react-bootstrap/Alert";
+
+import api from "@/api/client";
+import { handleApiError } from "@/lib/handleApiError";
+import type { AllPaymentMethodsRead } from "@/types";
+
+const PaymentMethodsList = () => {
+  const navigate = useNavigate();
+
+  const [data, setData] = useState<AllPaymentMethodsRead | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let mounted = true;
+
+    api
+      .get<AllPaymentMethodsRead>("/payment-methods", {
+        signal: controller.signal,
+      })
+      .then((res) => {
+        if (mounted) setData(res.data);
+      })
+      .catch((err) => {
+        if (axios.isCancel(err)) return;
+        if (!mounted) return;
+        const msg = handleApiError(err, { navigate });
+        if (msg) setError(msg);
+      })
+      .finally(() => {
+        if (mounted && !controller.signal.aborted) setLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+      controller.abort();
+    };
+  }, [navigate]);
+
+  if (loading) {
+    return (
+      <Container className="py-5 text-center">
+        <Spinner animation="border" role="status" />
+        <p className="mt-3 text-muted">Loading payment methods...</p>
+      </Container>
+    );
+  }
+
+  if (error) {
+    return (
+      <Container className="py-5" style={{ maxWidth: 720 }}>
+        <Alert variant="danger" className="text-center">
+          {error}
+        </Alert>
+      </Container>
+    );
+  }
+
+  const groups = data?.data ?? [];
+
+  return (
+    <Container className="py-4" style={{ maxWidth: 720 }}>
+      <div className="d-flex justify-content-between align-items-center mb-4">
+        <h1 className="h3 mb-0">Payment Methods</h1>
+        <Link to="/payment-methods/new" className="btn btn-primary">
+          + Add Payment Method
+        </Link>
+      </div>
+
+      {groups.length === 0 ? (
+        <p className="text-center text-muted py-5">
+          No payment methods yet.
+        </p>
+      ) : (
+        <Accordion>
+          {groups.map((group, index) => (
+            <Accordion.Item key={group.country_id} eventKey={String(index)}>
+              <Accordion.Header>
+                <div className="d-flex justify-content-between w-100 pe-3">
+                  <span>{group.country_name}</span>
+                  <span className="text-muted small">
+                    {group.payment_methods.length}{" "}
+                    {group.payment_methods.length === 1
+                      ? "method"
+                      : "methods"}
+                  </span>
+                </div>
+              </Accordion.Header>
+
+              <Accordion.Body className="p-0">
+                {group.payment_methods.length === 0 ? (
+                  <p className="text-muted m-3 small">
+                    No payment methods for this country.
+                  </p>
+                ) : (
+                  <ListGroup variant="flush">
+                    {group.payment_methods.map((method) => (
+                      <ListGroup.Item
+                        key={method.id}
+                        action
+                        as={Link}
+                        to={`/payment-methods/${method.slug}`}
+                        className="text-info d-flex justify-content-between"
+                      >
+                        <span>{method.name}</span>
+                        <span className="text-muted small">
+                          {method.slug}
+                        </span>
+                      </ListGroup.Item>
+                    ))}
+                  </ListGroup>
+                )}
+              </Accordion.Body>
+            </Accordion.Item>
+          ))}
+        </Accordion>
+      )}
+    </Container>
+  );
+};
+
+export default PaymentMethodsList;
+
+
 
 
 // src/hooks/usePaymentMethodsByCountry.ts
