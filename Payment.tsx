@@ -1,1709 +1,220 @@
+//chatgpt 
 
-// src/components/payment-methods/DeletePaymentMethodModal.tsx
 
-import Modal from "react-bootstrap/Modal";
-import Button from "react-bootstrap/Button";
-import Spinner from "react-bootstrap/Spinner";
-import Alert from "react-bootstrap/Alert";
 
-import type { PaymentMethodRead } from "@/types";
-
-interface DeletePaymentMethodModalProps {
-  method: PaymentMethodRead | null;
-  deleting: boolean;
-  serverError?: string | null;
-  onConfirm: () => void;
-  onCancel: () => void;
-}
-
-const DeletePaymentMethodModal = ({
-  method,
-  deleting,
-  serverError,
-  onConfirm,
-  onCancel,
-}: DeletePaymentMethodModalProps) => {
-  const isOpen = method !== null;
-
-  return (
-    <Modal
-      show={isOpen}
-      onHide={deleting ? undefined : onCancel}
-      backdrop={deleting ? "static" : true}
-      keyboard={!deleting}
-      centered
-      aria-labelledby="delete-payment-method-title"
-    >
-      <Modal.Header closeButton={!deleting}>
-        <Modal.Title id="delete-payment-method-title">
-          Delete Payment Method
-        </Modal.Title>
-      </Modal.Header>
-
-      <Modal.Body>
-        {serverError && (
-          <Alert variant="danger" className="py-2 small">
-            {serverError}
-          </Alert>
-        )}
-
-        <p className="mb-3">
-          You are about to delete{" "}
-          <strong>{method?.name ?? "this payment method"}</strong>.
-        </p>
-
-        <Alert variant="warning" className="mb-3">
-          Any receipts referencing this payment method will lose
-          their reference. This action cannot be undone.
-        </Alert>
-
-        <p className="mb-0 text-muted small">
-          Do you still want to continue?
-        </p>
-      </Modal.Body>
-
-      <Modal.Footer>
-        <Button
-          variant="outline-secondary"
-          onClick={onCancel}
-          disabled={deleting}
-        >
-          No, take me back
-        </Button>
-        <Button
-          variant="danger"
-          onClick={onConfirm}
-          disabled={deleting}
-        >
-          {deleting ? (
-            <>
-              <Spinner
-                as="span"
-                animation="border"
-                size="sm"
-                role="status"
-                aria-hidden="true"
-                className="me-2"
-              />
-              Deleting...
-            </>
-          ) : (
-            "Yes, delete it"
-          )}
-        </Button>
-      </Modal.Footer>
-    </Modal>
-  );
-};
-
-export default DeletePaymentMethodModal;
-
-
-
-// src/pages/payment-methods/PaymentMethodDetail.tsx
-
-import { useEffect, useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
-import axios from "axios";
-
-import Container from "react-bootstrap/Container";
-import ListGroup from "react-bootstrap/ListGroup";
-import Button from "react-bootstrap/Button";
-import Spinner from "react-bootstrap/Spinner";
-import Alert from "react-bootstrap/Alert";
-
-import api from "@/api/client";
-import { handleApiError } from "@/lib/handleApiError";
-import DeletePaymentMethodModal from "@/components/payment-methods/DeletePaymentMethodModal";
-import type {
-  DeletePaymentMethodResponse,
-  PaymentMethodRead,
-} from "@/types";
-
-
-const PaymentMethodDetail = () => {
-  const { slug } = useParams<{ slug: string }>();
-  const navigate = useNavigate();
-
-  const [method, setMethod] = useState<PaymentMethodRead | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!slug) return;
-
-    const controller = new AbortController();
-    let mounted = true;
-
-    api
-      .get<PaymentMethodRead>(`/payment-methods/${slug}`, {
-        signal: controller.signal,
-      })
-      .then((res) => {
-        if (mounted) setMethod(res.data);
-      })
-      .catch((err) => {
-        if (axios.isCancel(err)) return;
-        if (!mounted) return;
-        const msg = handleApiError(err, { navigate });
-        if (msg) setError(msg);
-      })
-      .finally(() => {
-        if (mounted && !controller.signal.aborted) setLoading(false);
-      });
-
-    return () => {
-      mounted = false;
-      controller.abort();
-    };
-  }, [slug, navigate]);
-
-
-  const openDeleteModal = () => {
-    setDeleteError(null);
-    setShowDeleteModal(true);
-  };
-
-  const closeDeleteModal = () => {
-    if (deleting) return;
-    setShowDeleteModal(false);
-    setDeleteError(null);
-  };
-
-  const confirmDelete = async () => {
-    if (!method) return;
-
-    setDeleting(true);
-    setDeleteError(null);
-
-    try {
-      const res = await api.delete<DeletePaymentMethodResponse>(
-        `/payment-methods/${slug}`
-      );
-      setShowDeleteModal(false);
-      setMessage(res.data.message);
-      window.setTimeout(() => navigate("/payment-methods"), 1800);
-    } catch (err) {
-      const msg = handleApiError(err, {
-        navigate,
-        redirectOnAuth: false,
-        redirectOnForbidden: false,
-      });
-      if (msg) setDeleteError(msg);
-    } finally {
-      setDeleting(false);
-    }
-  };
-
-
-  if (loading) {
-    return (
-      <Container className="py-5 text-center">
-        <Spinner animation="border" />
-      </Container>
-    );
-  }
-
-  if (error && !method) {
-    return (
-      <Container className="py-5" style={{ maxWidth: 720 }}>
-        <Alert variant="danger">{error}</Alert>
-        <Link to="/payment-methods">← Back to Payment Methods</Link>
-      </Container>
-    );
-  }
-
-  if (!method) return null;
-
-
-  return (
-    <Container className="py-4" style={{ maxWidth: 720 }}>
-      {message && (
-        <Alert variant="success" className="mb-4">
-          {message}
-        </Alert>
-      )}
-      {error && (
-        <Alert variant="danger" className="mb-4">
-          {error}
-        </Alert>
-      )}
-
-      <div className="d-flex justify-content-between align-items-start mb-4">
-        <h1 className="h3 mb-0">{method.name}</h1>
-        <div className="d-flex gap-2">
-          <Button
-            as={Link as any}
-            to={`/payment-methods/${method.slug}/edit`}
-            variant="warning"
-          >
-            Update
-          </Button>
-          <Button variant="danger" onClick={openDeleteModal}>
-            Delete
-          </Button>
-        </div>
-      </div>
-
-      <ListGroup>
-        <ListGroup.Item className="d-flex justify-content-between">
-          <strong>Country ID</strong>
-          <span>{method.country_id}</span>
-        </ListGroup.Item>
-        <ListGroup.Item className="d-flex justify-content-between">
-          <strong>Slug</strong>
-          <span>{method.slug ?? "—"}</span>
-        </ListGroup.Item>
-        <ListGroup.Item className="d-flex justify-content-between">
-          <strong>Created</strong>
-          <span>{new Date(method.created_at).toLocaleString()}</span>
-        </ListGroup.Item>
-        <ListGroup.Item className="d-flex justify-content-between">
-          <strong>Updated</strong>
-          <span>{new Date(method.updated_at).toLocaleString()}</span>
-        </ListGroup.Item>
-      </ListGroup>
-
-      <Link to="/payment-methods" className="d-inline-block mt-4">
-        ← Back to Payment Methods
-      </Link>
-
-      <DeletePaymentMethodModal
-        method={showDeleteModal ? method : null}
-        deleting={deleting}
-        serverError={deleteError}
-        onConfirm={confirmDelete}
-        onCancel={closeDeleteModal}
-      />
-    </Container>
-  );
-};
-
-export default PaymentMethodDetail;
-
-
-
-
-// src/pages/payment-methods/PaymentMethodsList.tsx
-
-import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import axios from "axios";
-
-import Container from "react-bootstrap/Container";
-import Accordion from "react-bootstrap/Accordion";
-import ListGroup from "react-bootstrap/ListGroup";
-import Spinner from "react-bootstrap/Spinner";
-import Alert from "react-bootstrap/Alert";
-
-import api from "@/api/client";
-import { handleApiError } from "@/lib/handleApiError";
-import type { AllPaymentMethodsRead } from "@/types";
-
-const PaymentMethodsList = () => {
-  const navigate = useNavigate();
-
-  const [data, setData] = useState<AllPaymentMethodsRead | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    let mounted = true;
-
-    api
-      .get<AllPaymentMethodsRead>("/payment-methods", {
-        signal: controller.signal,
-      })
-      .then((res) => {
-        if (mounted) setData(res.data);
-      })
-      .catch((err) => {
-        if (axios.isCancel(err)) return;
-        if (!mounted) return;
-        const msg = handleApiError(err, { navigate });
-        if (msg) setError(msg);
-      })
-      .finally(() => {
-        if (mounted && !controller.signal.aborted) setLoading(false);
-      });
-
-    return () => {
-      mounted = false;
-      controller.abort();
-    };
-  }, [navigate]);
-
-  if (loading) {
-    return (
-      <Container className="py-5 text-center">
-        <Spinner animation="border" role="status" />
-        <p className="mt-3 text-muted">Loading payment methods...</p>
-      </Container>
-    );
-  }
-
-  if (error) {
-    return (
-      <Container className="py-5" style={{ maxWidth: 720 }}>
-        <Alert variant="danger" className="text-center">
-          {error}
-        </Alert>
-      </Container>
-    );
-  }
-
-  const groups = data?.data ?? [];
-
-  return (
-    <Container className="py-4" style={{ maxWidth: 720 }}>
-      <div className="d-flex justify-content-between align-items-center mb-4">
-        <h1 className="h3 mb-0">Payment Methods</h1>
-        <Link to="/payment-methods/new" className="btn btn-primary">
-          + Add Payment Method
-        </Link>
-      </div>
-
-      {groups.length === 0 ? (
-        <p className="text-center text-muted py-5">
-          No payment methods yet.
-        </p>
-      ) : (
-        <Accordion>
-          {groups.map((group, index) => (
-            <Accordion.Item key={group.country_id} eventKey={String(index)}>
-              <Accordion.Header>
-                <div className="d-flex justify-content-between w-100 pe-3">
-                  <span>{group.country_name}</span>
-                  <span className="text-muted small">
-                    {group.payment_methods.length}{" "}
-                    {group.payment_methods.length === 1
-                      ? "method"
-                      : "methods"}
-                  </span>
-                </div>
-              </Accordion.Header>
-
-              <Accordion.Body className="p-0">
-                {group.payment_methods.length === 0 ? (
-                  <p className="text-muted m-3 small">
-                    No payment methods for this country.
-                  </p>
-                ) : (
-                  <ListGroup variant="flush">
-                    {group.payment_methods.map((method) => (
-                      <ListGroup.Item
-                        key={method.id}
-                        action
-                        as={Link}
-                        to={`/payment-methods/${method.slug}`}
-                        className="text-info d-flex justify-content-between"
-                      >
-                        <span>{method.name}</span>
-                        <span className="text-muted small">
-                          {method.slug}
-                        </span>
-                      </ListGroup.Item>
-                    ))}
-                  </ListGroup>
-                )}
-              </Accordion.Body>
-            </Accordion.Item>
-          ))}
-        </Accordion>
-      )}
-    </Container>
-  );
-};
-
-export default PaymentMethodsList;
-
-
-
-
-// src/hooks/usePaymentMethodsByCountry.ts
-
-import { useEffect, useState } from "react";
-import axios from "axios";
-
-import api from "@/api/client";
-import type { CountryPaymentMethodsRead } from "@/types";
-
-
-interface UsePaymentMethodsByCountryResult {
-  data: CountryPaymentMethodsRead | null;
-  loading: boolean;
-  error: string | null;
-  /** HTTP status of the error, when available (401, 403, 404, …). */
-  errorStatus: number | null;
-}
-
-
-/**
- * Fetch the payment methods for a country by country slug.
- *
- * Authenticated endpoint — the axios client sends the session
- * cookie automatically.
- *
- * @param countrySlug  Country slug (e.g. "liberia"). Pass null/undefined
- *                     to skip the fetch.
- */
-export function usePaymentMethodsByCountry(
-  countrySlug: string | null | undefined
-): UsePaymentMethodsByCountryResult {
-  const [data, setData] = useState<CountryPaymentMethodsRead | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [errorStatus, setErrorStatus] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (!countrySlug) {
-      setData(null);
-      setError(null);
-      setErrorStatus(null);
-      setLoading(false);
-      return;
-    }
-
-    const controller = new AbortController();
-    let mounted = true;
-    setLoading(true);
-    setError(null);
-    setErrorStatus(null);
-
-    api
-      .get<CountryPaymentMethodsRead>(
-        `/payment-methods/country/${countrySlug}`,
-        { signal: controller.signal }
-      )
-      .then((res) => {
-        if (mounted) setData(res.data);
-      })
-      .catch((err) => {
-        if (axios.isCancel(err)) return;
-        if (!mounted) return;
-
-        if (!axios.isAxiosError(err)) {
-          setError("An unexpected error occurred.");
-          return;
-        }
-
-        const status = err.response?.status;
-        const detail = err.response?.data?.detail;
-
-        setErrorStatus(status ?? null);
-        setError(
-          typeof detail === "string"
-            ? detail
-            : `Request failed (${status ?? "unknown"}).`
-        );
-      })
-      .finally(() => {
-        if (mounted && !controller.signal.aborted) setLoading(false);
-      });
-
-    return () => {
-      mounted = false;
-      controller.abort();
-    };
-  }, [countrySlug]);
-
-  return { data, loading, error, errorStatus };
-}
-// src/pages/receipts/CreateReceipt.tsx
-
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useNavigate, Navigate } from "react-router-dom";
-import axios from "axios";
-
-import Form from "react-bootstrap/Form";
-import Button from "react-bootstrap/Button";
-import Container from "react-bootstrap/Container";
-import Alert from "react-bootstrap/Alert";
-import Spinner from "react-bootstrap/Spinner";
-import Row from "react-bootstrap/Row";
-import Col from "react-bootstrap/Col";
-
-import api from "@/api/client";
-import { useAuth } from "@/context/AuthContext";
-import { handleApiError } from "@/lib/handleApiError";
-import type {
-  BranchListRead,
-  BranchRead,
-  CountryListRead,
-  CountryPaymentMethodsRead,
-  CountryRead,
-  CreateReceiptResponse,
-  FirmListRead,
-  FirmRead,
-  PaymentMethodRead,
-  ReceiptCreate,
-} from "@/types";
-
-
-// =============================================================
-// VALIDATION
-// =============================================================
-
-const schema = z.object({
-  firm_id: z.coerce
-    .number()
-    .int()
-    .positive("Please select a firm"),
-
-  branch_id: z.coerce
-    .number()
-    .int()
-    .positive("Please select a branch"),
-
-  payment_method_id: z.coerce
-    .number()
-    .int()
-    .positive("Please select a payment method"),
-
-  prepared_by: z
-    .string()
-    .trim()
-    .min(2, "Prepared by is required")
-    .max(200, "Prepared by must not exceed 200 characters"),
-
-  customer_fullname: z
-    .string()
-    .trim()
-    .min(2, "Customer name is required")
-    .max(200, "Customer name must not exceed 200 characters"),
-
-  customer_email: z
-    .string()
-    .trim()
-    .email("Invalid email address")
-    .optional()
-    .or(z.literal("")),
-
-  customer_address: z
-    .string()
-    .trim()
-    .min(5, "Address must be at least 5 characters")
-    .max(500, "Address must not exceed 500 characters"),
-
-  customer_phone: z
-    .string()
-    .trim()
-    .min(5, "Customer phone is required"),
-
-  product_name: z
-    .string()
-    .trim()
-    .min(1, "Product name is required")
-    .max(200),
-
-  serial_number: z
-    .string()
-    .trim()
-    .min(1, "Serial number is required")
-    .max(100),
-
-  quantity: z.coerce
-    .number()
-    .int()
-    .positive("Quantity must be greater than zero"),
-
-  unit_price: z.coerce
-    .number()
-    .positive("Unit price must be greater than zero"),
-
-  discount: z.coerce.number().min(0).default(0),
-  tax: z.coerce.number().min(0).default(0),
-  shipping: z.coerce.number().min(0).default(0),
-});
-
-type FormData = z.infer<typeof schema>;
-
-
-// =============================================================
-// COMPONENT
-// =============================================================
-
-const CreateReceipt = () => {
-  const navigate = useNavigate();
-  const { user, isLoading: authLoading } = useAuth();
-
-  // ---------------------------------------------------------
-  // Firms
-  // ---------------------------------------------------------
-  const [firms, setFirms] = useState<FirmRead[]>([]);
-  const [firmsLoading, setFirmsLoading] = useState(true);
-
-  // ---------------------------------------------------------
-  // Branches for the selected firm
-  // ---------------------------------------------------------
-  const [branches, setBranches] = useState<BranchRead[]>([]);
-  const [branchesLoading, setBranchesLoading] = useState(false);
-
-  // ---------------------------------------------------------
-  // Payment methods for the user's country
-  // ---------------------------------------------------------
-  const [methods, setMethods] = useState<PaymentMethodRead[]>([]);
-  const [methodsLoading, setMethodsLoading] = useState(true);
-
-  // ---------------------------------------------------------
-  // Feedback + redirect
-  // ---------------------------------------------------------
-  const [serverError, setServerError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const redirectRef = useRef<{ path: string; delayMs: number } | null>(null);
-
-  const {
-    register,
-    handleSubmit,
-    watch,
-    reset,
-    formState: { errors, isSubmitting },
-    setError,
-  } = useForm<FormData>({
-    resolver: zodResolver(schema),
-    defaultValues: {
-      firm_id: 0,
-      branch_id: 0,
-      payment_method_id: 0,
-      prepared_by: "",
-      customer_fullname: "",
-      customer_email: "",
-      customer_address: "",
-      customer_phone: "",
-      product_name: "",
-      serial_number: "",
-      quantity: 1,
-      unit_price: 0,
-      discount: 0,
-      tax: 0,
-      shipping: 0,
-    },
-  });
-
-  const selectedFirmId = watch("firm_id");
-
-
-  // ===========================================================
-  // 1. Load firms owned by the caller
-  // ===========================================================
-  useEffect(() => {
-    const controller = new AbortController();
-    let mounted = true;
-
-    api
-      .get<FirmListRead>("/firms/me/mine", { signal: controller.signal })
-      .then((res) => {
-        if (mounted) setFirms(res.data.firms ?? []);
-      })
-      .catch((err) => {
-        if (axios.isCancel(err)) return;
-        if (!mounted) return;
-        const msg = handleApiError(err, {
-          navigate,
-          redirectOnAuth: false,
-        });
-        if (msg) setServerError(msg);
-      })
-      .finally(() => {
-        if (mounted && !controller.signal.aborted) setFirmsLoading(false);
-      });
-
-    return () => {
-      mounted = false;
-      controller.abort();
-    };
-  }, [navigate]);
-
-
-  // ===========================================================
-  // 2. Resolve the user's country slug, then load payment methods
-  //
-  //    The receipt is issued in the user's own country, so we
-  //    don't need a country picker — the country is implicit.
-  //
-  //    Two-step:
-  //      a. If `user.country` already looks like a slug, use it.
-  //      b. Otherwise, fetch /home/countries and match by country_id.
-  // ===========================================================
-  useEffect(() => {
-    const controller = new AbortController();
-    let mounted = true;
-
-    async function loadPaymentMethods() {
-      setMethodsLoading(true);
-      setMethods([]);
-
-      try {
-        // --- resolve slug ---
-        let countrySlug: string | null = null;
-
-        // If the API already returns a slug on the user object,
-        // use it directly.
-        if (typeof user?.country === "string" && user.country.length > 0) {
-          countrySlug = user.country;
-        } else if (user?.country_id) {
-          // Fall back to looking it up from the country list.
-          const res = await api.get<CountryListRead>("/home/countries", {
-            signal: controller.signal,
-          });
-          const match: CountryRead | undefined = res.data.countries.find(
-            (c) => c.id === user.country_id
-          );
-          countrySlug = match?.slug ?? null;
-        }
-
-        if (!countrySlug) {
-          // No country on the user — shouldn't happen for a verified
-          // user with a receipt-issuing firm, but handle gracefully.
-          if (mounted) {
-            setMethodsLoading(false);
-            setServerError(
-              "Your account has no country assigned. Please contact support."
-            );
-          }
-          return;
-        }
-
-        // --- fetch methods for that country ---
-        const res = await api.get<CountryPaymentMethodsRead>(
-          `/payment-methods/country/${countrySlug}`,
-          { signal: controller.signal }
-        );
-
-        if (mounted) setMethods(res.data.payment_methods ?? []);
-      } catch (err) {
-        if (axios.isCancel(err)) return;
-        if (!mounted) return;
-
-        const msg = handleApiError(err, {
-          navigate,
-          redirectOnAuth: false,
-        });
-        if (msg) setServerError(msg);
-        setMethods([]);
-      } finally {
-        if (mounted && !controller.signal.aborted) setMethodsLoading(false);
-      }
-    }
-
-    if (!authLoading && user) {
-      loadPaymentMethods();
-    }
-
-    return () => {
-      mounted = false;
-      controller.abort();
-    };
-    // Re-run if the user identity changes (login, refresh)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, user?.id, user?.country, user?.country_id, navigate]);
-
-
-  // ===========================================================
-  // 3. Load branches when a firm is selected
-  // ===========================================================
-  useEffect(() => {
-    if (!selectedFirmId) {
-      setBranches([]);
-      return;
-    }
-
-    const firm = firms.find((f) => f.id === Number(selectedFirmId));
-    if (!firm?.slug) {
-      setBranches([]);
-      return;
-    }
-
-    const controller = new AbortController();
-    let mounted = true;
-    setBranchesLoading(true);
-
-    api
-      .get<BranchListRead>(`/firms/${firm.slug}/branches`, {
-        signal: controller.signal,
-      })
-      .then((res) => {
-        if (mounted) setBranches(res.data.branches ?? []);
-      })
-      .catch((err) => {
-        if (axios.isCancel(err)) return;
-        if (!mounted) return;
-        const msg = handleApiError(err, {
-          navigate,
-          redirectOnAuth: false,
-        });
-        if (msg) setServerError(msg);
-        setBranches([]);
-      })
-      .finally(() => {
-        if (mounted && !controller.signal.aborted) setBranchesLoading(false);
-      });
-
-    return () => {
-      mounted = false;
-      controller.abort();
-    };
-  }, [selectedFirmId, firms, navigate]);
-
-
-  // ===========================================================
-  // 4. Cancelable redirect after success
-  // ===========================================================
-  useEffect(() => {
-    const p = redirectRef.current;
-    if (!p) return;
-    const id = window.setTimeout(
-      () => navigate(p.path, { replace: true }),
-      p.delayMs
-    );
-    return () => window.clearTimeout(id);
-  }, [successMessage, navigate]);
-
-
-  // ===========================================================
-  // 5. Auth guards
-  // ===========================================================
-  if (authLoading) {
-    return (
-      <Container className="py-5 text-center">
-        <Spinner animation="border" />
-        <p className="text-muted mt-2">Loading...</p>
-      </Container>
-    );
-  }
-  if (!user) return <Navigate to="/login" replace />;
-
-
-  // ===========================================================
-  // 6. Submit
-  // ===========================================================
-  const onSubmit = async (data: FormData) => {
-    setServerError(null);
-    setSuccessMessage(null);
-    redirectRef.current = null;
-
-    const payload: ReceiptCreate = {
-      firm_id: data.firm_id,
-      branch_id: data.branch_id,
-      payment_method_id: data.payment_method_id,
-      prepared_by: data.prepared_by.trim(),
-      customer_fullname: data.customer_fullname.trim(),
-      customer_email: data.customer_email?.trim() || undefined,
-      customer_address: data.customer_address.trim(),
-      customer_phone: data.customer_phone.trim(),
-      product_name: data.product_name.trim(),
-      serial_number: data.serial_number.trim(),
-      quantity: data.quantity,
-      unit_price: String(data.unit_price),
-      discount: String(data.discount ?? 0),
-      tax: String(data.tax ?? 0),
-      shipping: String(data.shipping ?? 0),
-    };
-
-    try {
-      const res = await api.post<CreateReceiptResponse>(
-        "/receipts",
-        payload
-      );
-
-      setSuccessMessage(res.data.message);
-      reset();
-
-      // Redirect to the preview + auto-print page.
-      redirectRef.current = {
-        path: `/receipts/${res.data.receipt.slug}?print=1`,
-        delayMs: 1200,
-      };
-    } catch (err) {
-      const msg = handleApiError<FormData>(err, {
-        navigate,
-        setError,
-        validFields: [
-          "firm_id",
-          "branch_id",
-          "payment_method_id",
-          "prepared_by",
-          "customer_fullname",
-          "customer_email",
-          "customer_address",
-          "customer_phone",
-          "product_name",
-          "serial_number",
-          "quantity",
-          "unit_price",
-          "discount",
-          "tax",
-          "shipping",
-        ],
-      });
-      if (msg) setServerError(msg);
-    }
-  };
-
-
-  // ===========================================================
-  // 7. UI
-  // ===========================================================
-  return (
-    <Container className="py-5" style={{ maxWidth: 800 }}>
-      <div className="bg-white p-4 rounded shadow-sm">
-        <h1 className="h3 text-center mb-4">Create Receipt</h1>
-
-        {successMessage && (
-          <Alert variant="success" className="text-center">
-            {successMessage}
-            <div className="small mt-1">
-              Opening receipt preview...
-            </div>
-          </Alert>
-        )}
-
-        {serverError && (
-          <Alert variant="danger" className="text-center">
-            {serverError}
-          </Alert>
-        )}
-
-        <Form onSubmit={handleSubmit(onSubmit)} noValidate>
-          {/* ================= FIRM, BRANCH, PAYMENT METHOD ================= */}
-          <Row>
-            <Col md={4}>
-              <Form.Group className="mb-3" controlId="firm_id">
-                <Form.Label>Firm</Form.Label>
-                <Form.Select
-                  isInvalid={!!errors.firm_id}
-                  disabled={
-                    firmsLoading ||
-                    isSubmitting ||
-                    successMessage !== null
-                  }
-                  {...register("firm_id")}
-                >
-                  <option value={0}>
-                    {firmsLoading ? "Loading..." : "Select firm"}
-                  </option>
-                  {firms.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.name}
-                    </option>
-                  ))}
-                </Form.Select>
-                <Form.Control.Feedback type="invalid">
-                  {errors.firm_id?.message}
-                </Form.Control.Feedback>
-              </Form.Group>
-            </Col>
-
-            <Col md={4}>
-              <Form.Group className="mb-3" controlId="branch_id">
-                <Form.Label>Branch</Form.Label>
-                <Form.Select
-                  isInvalid={!!errors.branch_id}
-                  disabled={
-                    !selectedFirmId ||
-                    branchesLoading ||
-                    isSubmitting ||
-                    successMessage !== null
-                  }
-                  {...register("branch_id")}
-                >
-                  <option value={0}>
-                    {branchesLoading
-                      ? "Loading..."
-                      : !selectedFirmId
-                        ? "Select firm first"
-                        : "Select branch"}
-                  </option>
-                  {branches.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      Branch {b.branch_no}
-                    </option>
-                  ))}
-                </Form.Select>
-                <Form.Control.Feedback type="invalid">
-                  {errors.branch_id?.message}
-                </Form.Control.Feedback>
-              </Form.Group>
-            </Col>
-
-            <Col md={4}>
-              <Form.Group className="mb-3" controlId="payment_method_id">
-                <Form.Label>Payment Method</Form.Label>
-                <Form.Select
-                  isInvalid={!!errors.payment_method_id}
-                  disabled={
-                    methodsLoading ||
-                    isSubmitting ||
-                    successMessage !== null
-                  }
-                  {...register("payment_method_id")}
-                >
-                  <option value={0}>
-                    {methodsLoading
-                      ? "Loading..."
-                      : methods.length === 0
-                        ? "No methods available"
-                        : "Select method"}
-                  </option>
-                  {methods.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
-                </Form.Select>
-                <Form.Control.Feedback type="invalid">
-                  {errors.payment_method_id?.message}
-                </Form.Control.Feedback>
-              </Form.Group>
-            </Col>
-          </Row>
-
-          {/* ================= PREPARED BY ================= */}
-          <Form.Group className="mb-3" controlId="prepared_by">
-            <Form.Label>Prepared By</Form.Label>
-            <Form.Control
-              type="text"
-              placeholder="e.g. John Okonkwo"
-              isInvalid={!!errors.prepared_by}
-              disabled={isSubmitting || successMessage !== null}
-              {...register("prepared_by")}
-            />
-            <Form.Control.Feedback type="invalid">
-              {errors.prepared_by?.message}
-            </Form.Control.Feedback>
-          </Form.Group>
-
-          {/* ================= CUSTOMER ================= */}
-          <h6 className="mt-4 mb-3 text-muted">Customer</h6>
-          <Row>
-            <Col md={6}>
-              <Form.Group className="mb-3" controlId="customer_fullname">
-                <Form.Label>Full Name</Form.Label>
-                <Form.Control
-                  type="text"
-                  isInvalid={!!errors.customer_fullname}
-                  disabled={isSubmitting || successMessage !== null}
-                  {...register("customer_fullname")}
-                />
-                <Form.Control.Feedback type="invalid">
-                  {errors.customer_fullname?.message}
-                </Form.Control.Feedback>
-              </Form.Group>
-            </Col>
-            <Col md={6}>
-              <Form.Group className="mb-3" controlId="customer_phone">
-                <Form.Label>Phone</Form.Label>
-                <Form.Control
-                  type="tel"
-                  placeholder="+1234567890"
-                  isInvalid={!!errors.customer_phone}
-                  disabled={isSubmitting || successMessage !== null}
-                  {...register("customer_phone")}
-                />
-                <Form.Control.Feedback type="invalid">
-                  {errors.customer_phone?.message}
-                </Form.Control.Feedback>
-              </Form.Group>
-            </Col>
-          </Row>
-
-          <Form.Group className="mb-3" controlId="customer_email">
-            <Form.Label>
-              Email{" "}
-              <span className="text-muted small">
-                (optional — receipt emailed automatically)
-              </span>
-            </Form.Label>
-            <Form.Control
-              type="email"
-              isInvalid={!!errors.customer_email}
-              disabled={isSubmitting || successMessage !== null}
-              {...register("customer_email")}
-            />
-            <Form.Control.Feedback type="invalid">
-              {errors.customer_email?.message}
-            </Form.Control.Feedback>
-          </Form.Group>
-
-          <Form.Group className="mb-3" controlId="customer_address">
-            <Form.Label>Address</Form.Label>
-            <Form.Control
-              as="textarea"
-              rows={2}
-              isInvalid={!!errors.customer_address}
-              disabled={isSubmitting || successMessage !== null}
-              {...register("customer_address")}
-            />
-            <Form.Control.Feedback type="invalid">
-              {errors.customer_address?.message}
-            </Form.Control.Feedback>
-          </Form.Group>
-
-          {/* ================= PRODUCT ================= */}
-          <h6 className="mt-4 mb-3 text-muted">Product</h6>
-          <Row>
-            <Col md={8}>
-              <Form.Group className="mb-3" controlId="product_name">
-                <Form.Label>Product Name</Form.Label>
-                <Form.Control
-                  type="text"
-                  isInvalid={!!errors.product_name}
-                  disabled={isSubmitting || successMessage !== null}
-                  {...register("product_name")}
-                />
-                <Form.Control.Feedback type="invalid">
-                  {errors.product_name?.message}
-                </Form.Control.Feedback>
-              </Form.Group>
-            </Col>
-            <Col md={4}>
-              <Form.Group className="mb-3" controlId="serial_number">
-                <Form.Label>Serial Number</Form.Label>
-                <Form.Control
-                  type="text"
-                  isInvalid={!!errors.serial_number}
-                  disabled={isSubmitting || successMessage !== null}
-                  {...register("serial_number")}
-                />
-                <Form.Control.Feedback type="invalid">
-                  {errors.serial_number?.message}
-                </Form.Control.Feedback>
-              </Form.Group>
-            </Col>
-          </Row>
-
-          <Row>
-            <Col md={4}>
-              <Form.Group className="mb-3" controlId="quantity">
-                <Form.Label>Quantity</Form.Label>
-                <Form.Control
-                  type="number"
-                  min={1}
-                  isInvalid={!!errors.quantity}
-                  disabled={isSubmitting || successMessage !== null}
-                  {...register("quantity")}
-                />
-                <Form.Control.Feedback type="invalid">
-                  {errors.quantity?.message}
-                </Form.Control.Feedback>
-              </Form.Group>
-            </Col>
-            <Col md={4}>
-              <Form.Group className="mb-3" controlId="unit_price">
-                <Form.Label>Unit Price</Form.Label>
-                <Form.Control
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  isInvalid={!!errors.unit_price}
-                  disabled={isSubmitting || successMessage !== null}
-                  {...register("unit_price")}
-                />
-                <Form.Control.Feedback type="invalid">
-                  {errors.unit_price?.message}
-                </Form.Control.Feedback>
-              </Form.Group>
-            </Col>
-          </Row>
-
-          {/* ================= ADJUSTMENTS ================= */}
-          <h6 className="mt-4 mb-3 text-muted">Adjustments (optional)</h6>
-          <Row>
-            <Col md={4}>
-              <Form.Group className="mb-3" controlId="discount">
-                <Form.Label>Discount</Form.Label>
-                <Form.Control
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  isInvalid={!!errors.discount}
-                  disabled={isSubmitting || successMessage !== null}
-                  {...register("discount")}
-                />
-                <Form.Control.Feedback type="invalid">
-                  {errors.discount?.message}
-                </Form.Control.Feedback>
-              </Form.Group>
-            </Col>
-            <Col md={4}>
-              <Form.Group className="mb-3" controlId="tax">
-                <Form.Label>Tax</Form.Label>
-                <Form.Control
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  isInvalid={!!errors.tax}
-                  disabled={isSubmitting || successMessage !== null}
-                  {...register("tax")}
-                />
-                <Form.Control.Feedback type="invalid">
-                  {errors.tax?.message}
-                </Form.Control.Feedback>
-              </Form.Group>
-            </Col>
-            <Col md={4}>
-              <Form.Group className="mb-3" controlId="shipping">
-                <Form.Label>Shipping</Form.Label>
-                <Form.Control
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  isInvalid={!!errors.shipping}
-                  disabled={isSubmitting || successMessage !== null}
-                  {...register("shipping")}
-                />
-                <Form.Control.Feedback type="invalid">
-                  {errors.shipping?.message}
-                </Form.Control.Feedback>
-              </Form.Group>
-            </Col>
-          </Row>
-
-          {/* ================= SUBMIT ================= */}
-          <Button
-            type="submit"
-            variant="primary"
-            className="w-100 mt-3"
-            disabled={
-              isSubmitting ||
-              firmsLoading ||
-              methodsLoading ||
-              successMessage !== null
-            }
-          >
-            {isSubmitting ? (
-              <>
-                <Spinner
-                  as="span"
-                  animation="border"
-                  size="sm"
-                  role="status"
-                  aria-hidden="true"
-                  className="me-2"
-                />
-                Creating...
-              </>
-            ) : (
-              "Create Receipt"
-            )}
-          </Button>
-        </Form>
-      </div>
-    </Container>
-  );
-};
-
-export default CreateReceipt;
-
-
-
-// src/types/payment/create.ts
-
-import type { PaymentMethodRead } from "./read";
-
-export interface PaymentMethodCreate {
-  country_id: number;
-  name: string;
-}
-
-export interface CreatePaymentMethodResponse {
-  message: string;
-  payment_method: PaymentMethodRead;
-}
-
-
-// src/types/payment/update.ts
-
-import type { PaymentMethodRead } from "./read";
-
-export interface PaymentMethodUpdate {
-  name?: string;
-}
-
-export interface UpdatePaymentMethodResponse {
-  message: string;
-  payment_method: PaymentMethodRead;
-}
-
-
-
-
-// src/types/payment/index.ts
-
-export * from "./read";
-export * from "./create";
-export * from "./update";
-
-
-
-// src/types/index.ts
-
-export * from "./common";
-export * from "./user";
-export * from "./country";
-export * from "./payment";
-export * from "./firm";
-export * from "./receipt";
-export * from "./site";
-
-
-
-
-
-// src/types/payment/read.ts
-
-export interface PaymentMethodRead {
-  id: number;
-  country_id: number;
-  name: string;
-  slug?: string | null;
-  payment_logo_url?: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CountryPaymentMethodsRead {
-  country_id: number;
-  country_name: string;
-  payment_methods: PaymentMethodRead[];
-}
-
-export interface AllPaymentMethodsRead {
-  total_countries: number;
-  data: CountryPaymentMethodsRead[];
-}
-
-export interface AvailablePaymentMethodRead {
-  id: number;
-  name: string;
-  slug?: string | null;
-  payment_logo_url?: string | null;
-}
-
-export interface AvailablePaymentMethodsRead {
-  total: number;
-  methods: AvailablePaymentMethodRead[];
-}
-
-
-
-
-// src/pages/payment-methods/CreatePaymentMethod.tsx
-
-import { useEffect, useRef, useState } from "react";
-import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { useNavigate, Navigate, Link } from "react-router-dom";
-import axios from "axios";
 
-import Form from "react-bootstrap/Form";
-import Button from "react-bootstrap/Button";
-import Container from "react-bootstrap/Container";
 import Alert from "react-bootstrap/Alert";
+import Button from "react-bootstrap/Button";
+import Card from "react-bootstrap/Card";
+import Form from "react-bootstrap/Form";
 import Spinner from "react-bootstrap/Spinner";
 
 import api from "@/api/client";
-import { useAuth } from "@/context/AuthContext";
 import { handleApiError } from "@/lib/handleApiError";
-import type {
-  CountryListRead,
-  CountryRead,
-  CreatePaymentMethodResponse,
-} from "@/types";
 
+const MAX_LOGO_BYTES = 2 * 1024 * 1024;
+const ALLOWED_TYPES = ["image/png", "image/jpeg"];
 
-// =============================================================
-// VALIDATION
-//
-// `payment_logo` is a FileList from the file input. Zod can't
-// easily validate File objects pre-transform, so we use `any()`
-// and validate in onSubmit.
-// =============================================================
-
-const MAX_LOGO_BYTES = 2 * 1024 * 1024;   // 2 MiB
-const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/webp", "image/svg+xml"];
-
-const schema = z.object({
-  country_id: z.coerce
-    .number()
-    .int()
-    .positive("Please select a country"),
-
+const paymentMethodSchema = z.object({
   name: z
     .string()
     .trim()
-    .min(2, "Payment method name must be at least 2 characters")
-    .max(100, "Payment method name must not exceed 100 characters"),
-
-  payment_logo: z.any().optional(),
+    .min(2, "Payment method name must be at least 2 characters.")
+    .max(100, "Payment method name cannot exceed 100 characters."),
+  payment_logo: z
+    .custom<FileList>()
+    .optional()
+    .refine(
+      (files) =>
+        !files ||
+        files.length === 0 ||
+        files[0].size <= MAX_LOGO_BYTES,
+      "Logo must not exceed 2 MiB.",
+    )
+    .refine(
+      (files) =>
+        !files ||
+        files.length === 0 ||
+        ALLOWED_TYPES.includes(files[0].type),
+      "Logo must be a PNG or JPEG image.",
+    ),
 });
 
-type FormData = z.infer<typeof schema>;
+type PaymentMethodFormValues = z.infer<typeof paymentMethodSchema>;
 
+interface PaymentMethodRead {
+  id?: number;
+  name: string;
+  slug: string;
+  payment_logo_key?: string | null;
+  payment_logo_url?: string | null;
+}
+
+interface CreatePaymentMethodResponse {
+  message?: string;
+  payment_method?: PaymentMethodRead;
+}
 
 const CreatePaymentMethod = () => {
   const navigate = useNavigate();
-  const { user, isLoading: authLoading } = useAuth();
-
-  const [countries, setCountries] = useState<CountryRead[]>([]);
-  const [countriesLoading, setCountriesLoading] = useState(true);
 
   const [serverError, setServerError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const redirectRef = useRef<{ path: string; delayMs: number } | null>(null);
 
   const {
     register,
     handleSubmit,
-    formState: { errors, isSubmitting },
     setError,
-  } = useForm<FormData>({
-    resolver: zodResolver(schema),
-    defaultValues: { country_id: 0, name: "" },
+    formState: { errors, isSubmitting },
+  } = useForm<PaymentMethodFormValues>({
+    resolver: zodResolver(paymentMethodSchema),
+    defaultValues: {
+      name: "",
+    },
   });
 
-
-  // Load countries
-  useEffect(() => {
-    const controller = new AbortController();
-    let mounted = true;
-
-    api
-      .get<CountryListRead>("/home/countries", {
-        signal: controller.signal,
-      })
-      .then((res) => {
-        if (mounted) setCountries(res.data.countries ?? []);
-      })
-      .catch((err) => {
-        if (axios.isCancel(err)) return;
-        if (!mounted) return;
-        const msg = handleApiError(err, {
-          navigate,
-          redirectOnAuth: false,
-          redirectOnForbidden: false,
-        });
-        if (msg) setServerError(msg);
-      })
-      .finally(() => {
-        if (mounted && !controller.signal.aborted)
-          setCountriesLoading(false);
-      });
-
-    return () => {
-      mounted = false;
-      controller.abort();
-    };
-  }, [navigate]);
-
-
-  useEffect(() => {
-    const p = redirectRef.current;
-    if (!p) return;
-    const id = window.setTimeout(
-      () => navigate(p.path, { replace: true }),
-      p.delayMs
-    );
-    return () => window.clearTimeout(id);
-  }, [successMessage, navigate]);
-
-
-  if (authLoading) {
-    return (
-      <Container className="py-5 text-center">
-        <Spinner animation="border" />
-      </Container>
-    );
-  }
-  if (!user) return <Navigate to="/login" replace />;
-  if (!user.is_admin) return <Navigate to="/" replace />;
-
-
-  const onSubmit = async (data: FormData) => {
+  const onSubmit = async (data: PaymentMethodFormValues): Promise<void> => {
     setServerError(null);
     setSuccessMessage(null);
-    redirectRef.current = null;
 
-    // ---------------------------------------------------------
-    // Client-side logo validation
-    // ---------------------------------------------------------
-    const logoFile: File | undefined =
-      data.payment_logo instanceof FileList && data.payment_logo.length > 0
-        ? data.payment_logo[0]
-        : undefined;
-
-    if (logoFile) {
-      if (!ALLOWED_TYPES.includes(logoFile.type)) {
-        setError("payment_logo", {
-          type: "manual",
-          message: "Logo must be PNG, JPEG, WEBP, or SVG",
-        });
-        return;
-      }
-      if (logoFile.size > MAX_LOGO_BYTES) {
-        setError("payment_logo", {
-          type: "manual",
-          message: "Logo must be under 2 MiB",
-        });
-        return;
-      }
-    }
-
-    // ---------------------------------------------------------
-    // Build multipart payload
-    // ---------------------------------------------------------
     const formData = new FormData();
-    formData.append("country_id", String(data.country_id));
-    formData.append("name", data.name.trim());
+
+    // The backend schema performs authoritative normalization.
+    formData.append("name", data.name);
+
+    const logoFile = data.payment_logo?.[0];
+
     if (logoFile) {
       formData.append("payment_logo", logoFile);
     }
 
     try {
-      const res = await api.post<CreatePaymentMethodResponse>(
+      const response = await api.post<CreatePaymentMethodResponse>(
         "/payment-methods",
-        formData
-        // Note: do NOT set Content-Type manually — the browser must
-        // set the multipart boundary itself.
+        formData,
       );
-      setSuccessMessage(res.data.message);
-      redirectRef.current = {
-        path: `/payment-methods/${res.data.payment_method.slug}`,
-        delayMs: 1500,
-      };
-    } catch (err) {
-      const msg = handleApiError<FormData>(err, {
+
+      const createdMethod = response.data.payment_method;
+
+      if (createdMethod?.slug) {
+        navigate(`/payment-methods/${createdMethod.slug}`);
+        return;
+      }
+
+      setSuccessMessage(
+        response.data.message ?? "Payment method created successfully.",
+      );
+    } catch (error: unknown) {
+      const message = handleApiError<PaymentMethodFormValues>(error, {
         navigate,
         setError,
-        validFields: ["country_id", "name", "payment_logo"],
+        validFields: ["name", "payment_logo"],
         redirectOnAuth: false,
         redirectOnForbidden: false,
       });
-      if (msg) setServerError(msg);
+
+      if (message) {
+        setServerError(message);
+      }
     }
   };
 
-
   return (
-    <Container className="py-5" style={{ maxWidth: 520 }}>
-      <div className="bg-white p-4 rounded shadow-sm">
-        <h1 className="h3 text-center mb-4">Add Payment Method</h1>
+    <Card className="mx-auto my-4" style={{ maxWidth: "640px" }}>
+      <Card.Body>
+        <Card.Title className="mb-4">
+          Create Payment Method
+        </Card.Title>
 
-        {successMessage && (
-          <Alert variant="success" className="text-center">
-            {successMessage}
-            <div className="small mt-1">Redirecting...</div>
-          </Alert>
-        )}
         {serverError && (
-          <Alert variant="danger" className="text-center">
+          <Alert
+            variant="danger"
+            dismissible
+            onClose={() => setServerError(null)}
+          >
             {serverError}
           </Alert>
         )}
 
-        <Form onSubmit={handleSubmit(onSubmit)} noValidate>
-          <Form.Group className="mb-3" controlId="country_id">
-            <Form.Label>Country</Form.Label>
-            <Form.Select
-              isInvalid={!!errors.country_id}
-              disabled={
-                countriesLoading ||
-                isSubmitting ||
-                successMessage !== null
-              }
-              {...register("country_id")}
-            >
-              <option value={0}>
-                {countriesLoading ? "Loading countries..." : "Select country"}
-              </option>
-              {countries.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </Form.Select>
-            <Form.Control.Feedback type="invalid">
-              {errors.country_id?.message}
-            </Form.Control.Feedback>
-          </Form.Group>
+        {successMessage && (
+          <Alert variant="success">
+            {successMessage}
+          </Alert>
+        )}
 
-          <Form.Group className="mb-3" controlId="name">
-            <Form.Label>Payment Method Name</Form.Label>
+        <Form onSubmit={handleSubmit(onSubmit)} noValidate>
+          <Form.Group className="mb-3" controlId="paymentMethodName">
+            <Form.Label>Payment method name</Form.Label>
+
             <Form.Control
               type="text"
-              placeholder="e.g. MOMO LIBERIA"
-              isInvalid={!!errors.name}
-              disabled={isSubmitting || successMessage !== null}
+              placeholder="e.g. Mobile Money"
+              autoComplete="off"
+              isInvalid={Boolean(errors.name)}
               {...register("name")}
             />
+
             <Form.Control.Feedback type="invalid">
               {errors.name?.message}
             </Form.Control.Feedback>
           </Form.Group>
 
-          <Form.Group className="mb-4" controlId="payment_logo">
-            <Form.Label>
-              Logo{" "}
-              <span className="text-muted small">(optional)</span>
-            </Form.Label>
+          <Form.Group className="mb-3" controlId="paymentMethodLogo">
+            <Form.Label>Payment logo (optional)</Form.Label>
+
             <Form.Control
               type="file"
-              accept="image/png,image/jpeg,image/webp,image/svg+xml"
-              isInvalid={!!errors.payment_logo}
-              disabled={isSubmitting || successMessage !== null}
+              accept="image/png,image/jpeg"
+              isInvalid={Boolean(errors.payment_logo)}
               {...register("payment_logo")}
             />
+
             <Form.Control.Feedback type="invalid">
-              {errors.payment_logo?.message as string | undefined}
+              {errors.payment_logo?.message}
             </Form.Control.Feedback>
+
             <Form.Text className="text-muted">
-              PNG, JPEG, WEBP, or SVG. Maximum 2 MiB.
+              Accepted formats: PNG or JPEG. Maximum size: 2 MiB.
             </Form.Text>
           </Form.Group>
 
-          <Button
-            type="submit"
-            variant="primary"
-            className="w-100"
-            disabled={
-              isSubmitting ||
-              countriesLoading ||
-              successMessage !== null
-            }
-          >
-            {isSubmitting ? (
-              <>
-                <Spinner
-                  as="span"
-                  animation="border"
-                  size="sm"
-                  role="status"
-                  aria-hidden="true"
-                  className="me-2"
-                />
-                Creating...
-              </>
-            ) : (
-              "Create Payment Method"
-            )}
-          </Button>
-        </Form>
+          <div className="d-flex gap-2">
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? (
+                <>
+                  <Spinner
+                    animation="border"
+                    size="sm"
+                    className="me-2"
+                  />
+                  Creating...
+                </>
+              ) : (
+                "Create Payment Method"
+              )}
+            </Button>
 
-        <p className="text-center mt-4 mb-0 small">
-          <Link to="/payment-methods">← Back to Payment Methods</Link>
-        </p>
-      </div>
-    </Container>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={isSubmitting}
+              onClick={() => navigate("/payment-methods")}
+            >
+              Cancel
+            </Button>
+          </div>
+        </Form>
+      </Card.Body>
+    </Card>
   );
 };
 
@@ -1713,318 +224,326 @@ export default CreatePaymentMethod;
 
 
 
-// src/pages/payment-methods/UpdatePaymentMethod.tsx
+
 
 import { useEffect, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useParams, useNavigate, Navigate, Link } from "react-router-dom";
-import axios from "axios";
+import { zodResolver } from "@hookform/resolvers/zod";
 
-import Form from "react-bootstrap/Form";
-import Button from "react-bootstrap/Button";
-import Container from "react-bootstrap/Container";
 import Alert from "react-bootstrap/Alert";
+import Button from "react-bootstrap/Button";
+import Card from "react-bootstrap/Card";
+import Form from "react-bootstrap/Form";
 import Spinner from "react-bootstrap/Spinner";
 
 import api from "@/api/client";
-import { useAuth } from "@/context/AuthContext";
 import { handleApiError } from "@/lib/handleApiError";
-import type {
-  PaymentMethodRead,
-  UpdatePaymentMethodResponse,
-} from "@/types";
-
 
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
-const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/webp", "image/svg+xml"];
+const ALLOWED_TYPES = ["image/png", "image/jpeg"];
 
-const schema = z.object({
+const paymentMethodSchema = z.object({
   name: z
     .string()
     .trim()
-    .min(2, "Payment method name must be at least 2 characters")
-    .max(100, "Payment method name must not exceed 100 characters"),
-
-  payment_logo: z.any().optional(),
+    .min(2, "Payment method name must be at least 2 characters.")
+    .max(100, "Payment method name cannot exceed 100 characters."),
+  payment_logo: z
+    .custom<FileList>()
+    .optional()
+    .refine(
+      (files) =>
+        !files ||
+        files.length === 0 ||
+        files[0].size <= MAX_LOGO_BYTES,
+      "Logo must not exceed 2 MiB.",
+    )
+    .refine(
+      (files) =>
+        !files ||
+        files.length === 0 ||
+        ALLOWED_TYPES.includes(files[0].type),
+      "Logo must be a PNG or JPEG image.",
+    ),
 });
 
-type FormData = z.infer<typeof schema>;
+type PaymentMethodFormValues = z.infer<typeof paymentMethodSchema>;
 
+interface PaymentMethodRead {
+  id?: number;
+  name: string;
+  slug: string;
+  payment_logo_key?: string | null;
+  payment_logo_url?: string | null;
+}
+
+interface UpdatePaymentMethodResponse {
+  message?: string;
+  payment_method?: PaymentMethodRead;
+}
+
+const normalizePaymentName = (value: string): string =>
+  value.trim().replace(/\s+/g, " ").toUpperCase();
 
 const UpdatePaymentMethod = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
-  const { user, isLoading: authLoading } = useAuth();
 
   const [loading, setLoading] = useState(true);
-  const [currentLogoUrl, setCurrentLogoUrl] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const redirectRef = useRef<{ path: string; delayMs: number } | null>(null);
+  const [currentLogoUrl, setCurrentLogoUrl] = useState<string | null>(null);
 
-  const originalNameRef = useRef<string>("");
+  const originalNameRef = useRef("");
 
   const {
     register,
     handleSubmit,
     reset,
-    formState: { errors, isSubmitting, isDirty },
     setError,
-  } = useForm<FormData>({
-    resolver: zodResolver(schema),
-    defaultValues: { name: "" },
+    formState: { errors, isSubmitting },
+  } = useForm<PaymentMethodFormValues>({
+    resolver: zodResolver(paymentMethodSchema),
+    defaultValues: {
+      name: "",
+    },
   });
 
-
   useEffect(() => {
-    if (!slug) return;
+    let cancelled = false;
 
-    const controller = new AbortController();
-    let mounted = true;
+    const loadPaymentMethod = async (): Promise<void> => {
+      if (!slug) {
+        setServerError("Payment method slug is missing.");
+        setLoading(false);
+        return;
+      }
 
-    api
-      .get<PaymentMethodRead>(`/payment-methods/${slug}`, {
-        signal: controller.signal,
-      })
-      .then((res) => {
-        if (!mounted) return;
-        originalNameRef.current = res.data.name;
-        setCurrentLogoUrl(res.data.payment_logo_url ?? null);
-        reset({ name: res.data.name });
-      })
-      .catch((err) => {
-        if (axios.isCancel(err)) return;
-        if (!mounted) return;
-        const msg = handleApiError(err, { navigate });
-        if (msg) setServerError(msg);
-      })
-      .finally(() => {
-        if (mounted && !controller.signal.aborted) setLoading(false);
-      });
+      setLoading(true);
+      setServerError(null);
+
+      try {
+        const response = await api.get<PaymentMethodRead>(
+          `/payment-methods/${slug}`,
+        );
+
+        if (cancelled) {
+          return;
+        }
+
+        const method = response.data;
+
+        originalNameRef.current = method.name;
+        setCurrentLogoUrl(method.payment_logo_url ?? null);
+
+        reset({
+          name: method.name,
+        });
+      } catch (error: unknown) {
+        if (!cancelled) {
+          const message = handleApiError<PaymentMethodFormValues>(error, {
+            navigate,
+          });
+
+          if (message) {
+            setServerError(message);
+          }
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void loadPaymentMethod();
 
     return () => {
-      mounted = false;
-      controller.abort();
+      cancelled = true;
     };
   }, [slug, navigate, reset]);
 
-
-  useEffect(() => {
-    const p = redirectRef.current;
-    if (!p) return;
-    const id = window.setTimeout(
-      () => navigate(p.path, { replace: true }),
-      p.delayMs
-    );
-    return () => window.clearTimeout(id);
-  }, [successMessage, navigate]);
-
-
-  if (authLoading) {
-    return (
-      <Container className="py-5 text-center">
-        <Spinner animation="border" />
-      </Container>
-    );
-  }
-  if (!user) return <Navigate to="/login" replace />;
-  if (!user.is_admin) return <Navigate to="/" replace />;
-
-
-  const onSubmit = async (data: FormData) => {
-    setServerError(null);
-    setSuccessMessage(null);
-    redirectRef.current = null;
-
-    const trimmed = data.name.trim();
-    const nameChanged = trimmed !== originalNameRef.current;
-
-    const logoFile: File | undefined =
-      data.payment_logo instanceof FileList && data.payment_logo.length > 0
-        ? data.payment_logo[0]
-        : undefined;
-
-    // Nothing to send
-    if (!nameChanged && !logoFile) {
-      setServerError("No changes were made");
+  const onSubmit = async (data: PaymentMethodFormValues): Promise<void> => {
+    if (!slug) {
+      setServerError("Payment method slug is missing.");
       return;
     }
 
-    if (logoFile) {
-      if (!ALLOWED_TYPES.includes(logoFile.type)) {
-        setError("payment_logo", {
-          type: "manual",
-          message: "Logo must be PNG, JPEG, WEBP, or SVG",
-        });
-        return;
-      }
-      if (logoFile.size > MAX_LOGO_BYTES) {
-        setError("payment_logo", {
-          type: "manual",
-          message: "Logo must be under 2 MiB",
-        });
-        return;
-      }
+    setServerError(null);
+
+    const normalizedName = normalizePaymentName(data.name);
+    const originalNormalizedName = normalizePaymentName(
+      originalNameRef.current,
+    );
+
+    const nameChanged = normalizedName !== originalNormalizedName;
+    const logoFile = data.payment_logo?.[0];
+
+    // Do not send an empty PATCH request.
+    if (!nameChanged && !logoFile) {
+      setServerError("No changes were made.");
+      return;
     }
 
     const formData = new FormData();
+
     if (nameChanged) {
-      formData.append("name", trimmed);
+      formData.append("name", normalizedName);
     }
+
     if (logoFile) {
       formData.append("payment_logo", logoFile);
     }
 
     try {
-      const res = await api.patch<UpdatePaymentMethodResponse>(
+      const response = await api.patch<UpdatePaymentMethodResponse>(
         `/payment-methods/${slug}`,
-        formData
+        formData,
       );
-      setSuccessMessage(res.data.message);
-      redirectRef.current = {
-        path: `/payment-methods/${res.data.payment_method.slug}`,
-        delayMs: 1500,
-      };
-    } catch (err) {
-      const msg = handleApiError<FormData>(err, {
+
+      const updatedMethod = response.data.payment_method;
+
+      if (updatedMethod?.slug) {
+        navigate(`/payment-methods/${updatedMethod.slug}`, {
+          replace: true,
+        });
+        return;
+      }
+
+      navigate("/payment-methods");
+    } catch (error: unknown) {
+      const message = handleApiError<PaymentMethodFormValues>(error, {
         navigate,
         setError,
         validFields: ["name", "payment_logo"],
         redirectOnAuth: false,
         redirectOnForbidden: false,
       });
-      if (msg) setServerError(msg);
+
+      if (message) {
+        setServerError(message);
+      }
     }
   };
 
-
   if (loading) {
     return (
-      <Container className="py-5 text-center">
-        <Spinner animation="border" />
-      </Container>
+      <div className="d-flex justify-content-center my-5">
+        <Spinner animation="border" role="status">
+          <span className="visually-hidden">
+            Loading payment method...
+          </span>
+        </Spinner>
+      </div>
     );
   }
 
-
   return (
-    <Container className="py-5" style={{ maxWidth: 520 }}>
-      <div className="bg-white p-4 rounded shadow-sm">
-        <h1 className="h3 text-center mb-4">Update Payment Method</h1>
+    <Card className="mx-auto my-4" style={{ maxWidth: "640px" }}>
+      <Card.Body>
+        <Card.Title className="mb-4">
+          Update Payment Method
+        </Card.Title>
 
-        {successMessage && (
-          <Alert variant="success" className="text-center">
-            {successMessage}
-            <div className="small mt-1">Redirecting...</div>
-          </Alert>
-        )}
         {serverError && (
-          <Alert variant="danger" className="text-center">
+          <Alert
+            variant="danger"
+            dismissible
+            onClose={() => setServerError(null)}
+          >
             {serverError}
           </Alert>
         )}
 
         <Form onSubmit={handleSubmit(onSubmit)} noValidate>
-          <Form.Group className="mb-3" controlId="name">
-            <Form.Label>Payment Method Name</Form.Label>
+          <Form.Group className="mb-3" controlId="paymentMethodName">
+            <Form.Label>Payment method name</Form.Label>
+
             <Form.Control
               type="text"
-              isInvalid={!!errors.name}
-              disabled={isSubmitting || successMessage !== null}
+              autoComplete="off"
+              isInvalid={Boolean(errors.name)}
               {...register("name")}
             />
+
             <Form.Control.Feedback type="invalid">
               {errors.name?.message}
             </Form.Control.Feedback>
           </Form.Group>
 
           {currentLogoUrl && (
-            <div className="mb-3">
-              <div className="text-muted small mb-2">Current logo</div>
-              <img
-                src={currentLogoUrl}
-                alt="Current payment logo"
-                style={{
-                  height: 48,
-                  maxWidth: 160,
-                  objectFit: "contain",
-                  display: "block",
-                }}
-              />
-            </div>
+            <Form.Group className="mb-3">
+              <Form.Label>Current logo</Form.Label>
+
+              <div className="mb-2">
+                <img
+                  src={currentLogoUrl}
+                  alt="Current payment method logo"
+                  style={{
+                    maxWidth: "180px",
+                    maxHeight: "120px",
+                    objectFit: "contain",
+                  }}
+                />
+              </div>
+            </Form.Group>
           )}
 
-          <Form.Group className="mb-4" controlId="payment_logo">
-            <Form.Label>
-              {currentLogoUrl ? "Replace Logo" : "Logo"}{" "}
-              <span className="text-muted small">(optional)</span>
-            </Form.Label>
+          <Form.Group className="mb-3" controlId="paymentMethodLogo">
+            <Form.Label>Replace logo (optional)</Form.Label>
+
             <Form.Control
               type="file"
-              accept="image/png,image/jpeg,image/webp,image/svg+xml"
-              isInvalid={!!errors.payment_logo}
-              disabled={isSubmitting || successMessage !== null}
+              accept="image/png,image/jpeg"
+              isInvalid={Boolean(errors.payment_logo)}
               {...register("payment_logo")}
             />
+
             <Form.Control.Feedback type="invalid">
-              {errors.payment_logo?.message as string | undefined}
+              {errors.payment_logo?.message}
             </Form.Control.Feedback>
+
             <Form.Text className="text-muted">
-              Leave blank to keep the current logo.
+              Accepted formats: PNG or JPEG. Maximum size: 2 MiB.
+              Leave empty to keep the current logo.
             </Form.Text>
           </Form.Group>
 
-          <Button
-            type="submit"
-            variant="primary"
-            className="w-100"
-            disabled={
-              isSubmitting ||
-              successMessage !== null
-            }
-          >
-            {isSubmitting ? (
-              <>
-                <Spinner
-                  as="span"
-                  animation="border"
-                  size="sm"
-                  role="status"
-                  aria-hidden="true"
-                  className="me-2"
-                />
-                Updating...
-              </>
-            ) : (
-              "Update Payment Method"
-            )}
-          </Button>
-        </Form>
+          <div className="d-flex gap-2">
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? (
+                <>
+                  <Spinner
+                    animation="border"
+                    size="sm"
+                    className="me-2"
+                  />
+                  Saving...
+                </>
+              ) : (
+                "Save Changes"
+              )}
+            </Button>
 
-        <p className="text-center mt-4 mb-0 small">
-          <Link to={`/payment-methods/${slug}`}>
-            ← Back to Payment Method
-          </Link>
-        </p>
-      </div>
-    </Container>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={isSubmitting}
+              onClick={() => navigate(`/payment-methods/${slug}`)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </Form>
+      </Card.Body>
+    </Card>
   );
 };
 
 export default UpdatePaymentMethod;
 
-
-
-
-
-
-
-
-
-
-// src/pages/payment-methods/CreatePaymentMethod.tsx
-
-
-    
