@@ -1,0 +1,30 @@
+<Row>
+  <Col md={12}>
+    <Form.Group className="mb-3" controlId="uniqueId">
+      <Form.Label className="fw-semibold">Field Label</Form.Label>
+      <Form.Control {...register("fieldName")} />
+      <Form.Control.Feedback type="invalid">
+        {errors.fieldName?.message}
+      </Form.Control.Feedback>
+    </Form.Group>
+  </Col>
+</Row>
+
+
+
+// 2 side by side field
+
+<Row>
+  <Col md={6}>
+    <Form.Group className="mb-3" controlId="fieldA">
+      <Form.Label className="fw-semibold">Field A</Form.Label>
+      <Form.Control {...register("a")} />
+    </Form.Group>
+  </Col>
+  <Col md={6}>
+    <Form.Group className="mb-3" controlId="fieldB">
+      <Form.Label className="fw-semibold">Field B</Form.Label>
+      <Form.Control {...register("b")} />
+    </Form.Group>
+  </Col>
+</Row>
